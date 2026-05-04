@@ -9,6 +9,8 @@ const clearReferenceButton = document.querySelector("#clear-reference");
 const previewBriefButton = document.querySelector("#preview-brief");
 const sendBriefNowButton = document.querySelector("#send-brief-now");
 const briefRequestStatusEl = document.querySelector("#brief-request-status");
+const manualBriefPanel = document.querySelector("#manual-brief-panel");
+const briefControlsPanel = document.querySelector("#brief-controls-panel");
 const refreshBriefStatusButton = document.querySelector("#refresh-brief-status");
 const briefRunStatusEl = document.querySelector("#brief-run-status");
 const excludeTypeEl = document.querySelector("#exclude-type");
@@ -45,6 +47,22 @@ const EMPTY_REFERENCE_DATA = {
 const state = {
   referenceData: { ...EMPTY_REFERENCE_DATA }
 };
+
+function isLocalMvpHost() {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function configureLocalOnlyBriefControls() {
+  if (isLocalMvpHost()) {
+    return;
+  }
+
+  for (const panel of [manualBriefPanel, briefControlsPanel]) {
+    if (panel) {
+      panel.hidden = true;
+    }
+  }
+}
 
 function saveReferenceData() {
   window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state.referenceData));
@@ -489,6 +507,10 @@ function formatUnknownContacts(items = [], sourceBriefPath = "") {
 }
 
 async function refreshBriefControls() {
+  if (!isLocalMvpHost()) {
+    return;
+  }
+
   const [statusResponse, exclusionsResponse, unknownResponse] = await Promise.all([
     fetch("/api/daily-brief/status"),
     fetch("/api/daily-brief/exclusions"),
@@ -506,6 +528,10 @@ async function refreshBriefControls() {
 }
 
 async function addExclusion() {
+  if (!isLocalMvpHost()) {
+    return;
+  }
+
   const value = excludeValueEl.value.trim();
 
   if (!value) {
@@ -535,6 +561,10 @@ async function addExclusion() {
 }
 
 async function requestBrief({ dryRun = true } = {}) {
+  if (!isLocalMvpHost()) {
+    return;
+  }
+
   briefRequestStatusEl.textContent = dryRun
     ? "Generating preview. This may take a minute..."
     : "Sending combined Gmail and Messages brief now. This may take a minute...";
@@ -634,6 +664,7 @@ sendBriefNowButton.addEventListener("click", () => {
 });
 
 async function initialize() {
+  configureLocalOnlyBriefControls();
   restoreReferenceData();
   await hydrateProjectIntelligence();
   saveReferenceData();
