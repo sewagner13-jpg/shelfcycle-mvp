@@ -9,6 +9,13 @@ const clearReferenceButton = document.querySelector("#clear-reference");
 const previewBriefButton = document.querySelector("#preview-brief");
 const sendBriefNowButton = document.querySelector("#send-brief-now");
 const briefRequestStatusEl = document.querySelector("#brief-request-status");
+const refreshBriefStatusButton = document.querySelector("#refresh-brief-status");
+const briefRunStatusEl = document.querySelector("#brief-run-status");
+const excludeTypeEl = document.querySelector("#exclude-type");
+const excludeValueEl = document.querySelector("#exclude-value");
+const addExclusionButton = document.querySelector("#add-exclusion");
+const exclusionListEl = document.querySelector("#exclusion-list");
+const unknownContactsEl = document.querySelector("#unknown-contacts");
 
 const workflowChip = document.querySelector("#workflow-chip");
 const signalsEl = document.querySelector("#signals");
@@ -425,6 +432,108 @@ function formatBriefRequestStatus(result = {}) {
   ].join("\n");
 }
 
+function formatDateTime(value = "") {
+  if (!value) {
+    return "-";
+  }
+
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function renderBriefRunStatus(status = {}) {
+  const lastRun = status.lastRun ?? {};
+  const cards = [
+    ["Next Run", formatDateTime(status.nextRunAt)],
+    ["Last Run", formatDateTime(lastRun.generatedAt)],
+    ["Sent", lastRun.sent ? "yes" : lastRun.dryRun ? "preview" : "-"],
+    ["Gmail", String(lastRun.emailThreads ?? 0)],
+    ["Messages", String(lastRun.messageBusinessThreads ?? 0)],
+    ["Unknown", String(lastRun.unknownMessageContacts ?? 0)],
+    ["Review Links", String(lastRun.reviewLinks ?? 0)],
+    ["Last Error", status.lastError || "none"]
+  ];
+
+  briefRunStatusEl.innerHTML = cards
+    .map(([label, value]) => `<div class="stat-card"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`)
+    .join("");
+}
+
+function formatExclusions(control = {}) {
+  const exclude = control.exclude ?? {};
+  return [
+    `Emails:\n${exclude.emails?.length ? exclude.emails.map((item) => `- ${item}`).join("\n") : "- None"}`,
+    `Domains:\n${exclude.domains?.length ? exclude.domains.map((item) => `- ${item}`).join("\n") : "- None"}`,
+    `Phones:\n${exclude.phones?.length ? exclude.phones.map((item) => `- ${item}`).join("\n") : "- None"}`,
+    `Keywords:\n${exclude.keywords?.length ? exclude.keywords.map((item) => `- ${item}`).join("\n") : "- None"}`
+  ].join("\n\n");
+}
+
+function formatUnknownContacts(items = [], sourceBriefPath = "") {
+  if (!items.length) {
+    return `No unknown business-looking message contacts found.${sourceBriefPath ? `\nSource: ${sourceBriefPath}` : ""}`;
+  }
+
+  return [
+    ...items.map((item) => `- ${item.contact} | ${item.silo || "unclassified"} | ${item.suggestedAction || item.suggested_action || "Review contact mapping."}`),
+    sourceBriefPath ? `\nSource: ${sourceBriefPath}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+async function refreshBriefControls() {
+  const [statusResponse, exclusionsResponse, unknownResponse] = await Promise.all([
+    fetch("/api/daily-brief/status"),
+    fetch("/api/daily-brief/exclusions"),
+    fetch("/api/daily-brief/unknown-contacts")
+  ]);
+  const [status, exclusions, unknown] = await Promise.all([
+    statusResponse.json(),
+    exclusionsResponse.json(),
+    unknownResponse.json()
+  ]);
+
+  renderBriefRunStatus(status);
+  exclusionListEl.textContent = formatExclusions(exclusions.control ?? {});
+  unknownContactsEl.textContent = formatUnknownContacts(unknown.unknownContacts ?? [], unknown.sourceBriefPath || "");
+}
+
+async function addExclusion() {
+  const value = excludeValueEl.value.trim();
+
+  if (!value) {
+    exclusionListEl.textContent = "Enter a value to exclude.";
+    return;
+  }
+
+  const response = await fetch("/api/daily-brief/exclusions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      type: excludeTypeEl.value,
+      value
+    })
+  });
+  const result = await response.json();
+
+  if (!response.ok || result.error) {
+    exclusionListEl.textContent = result.error || "Could not add exclusion.";
+    return;
+  }
+
+  excludeValueEl.value = "";
+  exclusionListEl.textContent = formatExclusions(result.control ?? {});
+}
+
 async function requestBrief({ dryRun = true } = {}) {
   briefRequestStatusEl.textContent = dryRun
     ? "Generating preview. This may take a minute..."
@@ -445,6 +554,7 @@ async function requestBrief({ dryRun = true } = {}) {
   }
 
   briefRequestStatusEl.textContent = formatBriefRequestStatus(result);
+  await refreshBriefControls();
 }
 
 function restoreReferenceData() {
@@ -504,6 +614,16 @@ analyzeButton.addEventListener("click", analyze);
 loadSampleButton.addEventListener("click", loadSampleData);
 exportKnowledgeButton.addEventListener("click", exportKnowledgeBundle);
 clearReferenceButton.addEventListener("click", clearReferenceData);
+refreshBriefStatusButton.addEventListener("click", () => {
+  refreshBriefControls().catch((error) => {
+    exclusionListEl.textContent = error instanceof Error ? error.message : "Could not refresh brief controls.";
+  });
+});
+addExclusionButton.addEventListener("click", () => {
+  addExclusion().catch((error) => {
+    exclusionListEl.textContent = error instanceof Error ? error.message : "Could not add exclusion.";
+  });
+});
 previewBriefButton.addEventListener("click", () => requestBrief({ dryRun: true }));
 sendBriefNowButton.addEventListener("click", () => {
   const confirmed = window.confirm("Send the combined Gmail and Messages brief email now?");
@@ -518,6 +638,7 @@ async function initialize() {
   await hydrateProjectIntelligence();
   saveReferenceData();
   renderReferenceStatus();
+  await refreshBriefControls().catch(() => {});
 }
 
 initialize();

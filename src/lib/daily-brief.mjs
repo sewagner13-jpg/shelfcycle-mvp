@@ -175,6 +175,26 @@ function messagesThreadUrl(item = {}) {
   return `sms:${digits}`;
 }
 
+function chatGptUrlForItem(item = {}, nextStep = "") {
+  if (!nextStep) {
+    return "";
+  }
+
+  const participant = firstExternalParticipant(item);
+  const prompt = [
+    "Help me decide the best real next step for this ClearEdge Solutions email thread.",
+    `Subject: ${item.subject || "No subject"}`,
+    `Contact: ${participant?.name || participant?.email || "Unknown"}`,
+    `Relationship: ${item.relationship?.relationship || "unknown"}`,
+    `Silo: ${item.silo?.name || "unknown"}`,
+    `Suggested next step: ${nextStep}`,
+    item.reviewUrl ? `Review packet: ${item.reviewUrl}` : "",
+    "Keep the recommendation practical, approval-first, and avoid creating ShelfCycle records unless I explicitly decide to."
+  ].filter(Boolean).join("\n");
+
+  return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+}
+
 function intelligenceSuffix(item = {}) {
   const intelligenceContext = item.analysis?.intelligenceContext ?? item.analysis?.notebookContext;
 
@@ -228,8 +248,9 @@ function compactLine(item, { timeZone, locale }) {
   const gmail = gmailThreadUrl(item) ? ` | Gmail: ${gmailThreadUrl(item)}` : "";
   const messages = messagesThreadUrl(item) ? ` | Messages: ${messagesThreadUrl(item)}` : "";
   const review = item.reviewUrl ? ` | Review: ${item.reviewUrl}` : "";
+  const chatgpt = chatGptUrlForItem(item, nextStep) ? ` | Decide in ChatGPT: ${chatGptUrlForItem(item, nextStep)}` : "";
 
-  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}`;
+  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}${chatgpt}`;
 }
 
 function sumRoleWorklists(items = [], role) {
@@ -337,6 +358,7 @@ function messageMemoryCounts(section = {}) {
     businessThreads: section.business_threads?.length ?? 0,
     unanswered: section.unanswered_messages?.length ?? 0,
     memoryCandidates: section.memory_candidates?.length ?? 0,
+    unknownContacts: section.unknown_contacts?.length ?? 0,
     followups: section.suggested_followups?.length ?? 0
   };
 }
@@ -351,7 +373,11 @@ function formatMessageMemoryItem(item = {}) {
     item.next_step ? `Next: ${item.next_step}` : ""
   ].filter(Boolean);
 
-  return `- ${parts.join(" | ")}`;
+  const chatgpt = item.next_step
+    ? ` | Decide in ChatGPT: https://chatgpt.com/?q=${encodeURIComponent(`Help me decide the best real next step for this ClearEdge Solutions text-message thread.\nContact: ${item.contact || "Unknown"}\nSubject: ${item.subject || ""}\nSuggested next step: ${item.next_step}\nKeep it practical and approval-first.`)}`
+    : "";
+
+  return `- ${parts.join(" | ")}${chatgpt}`;
 }
 
 function appendMessageMemorySection(sections = [], messageMemory = null) {
@@ -441,6 +467,7 @@ export function buildDailyBrief({
     ...(hasMessageMemoryContent(messageMemory)
       ? [
           `- Message business threads: ${messageMemoryCounts(messageMemory).businessThreads}`,
+          `- Unknown message contacts: ${messageMemoryCounts(messageMemory).unknownContacts}`,
           `- Message follow-ups: ${messageMemoryCounts(messageMemory).followups}`
         ]
       : [])

@@ -50,6 +50,7 @@ function emptySection() {
     business_threads: [],
     unanswered_messages: [],
     memory_candidates: [],
+    unknown_contacts: [],
     suggested_followups: [],
     low_priority_summary: []
   };
@@ -73,6 +74,24 @@ function whitelistSet(config = {}) {
 
 function blacklistSet(config = {}) {
   return new Set((config.blacklist ?? []).map((value) => String(value).trim().toLowerCase()));
+}
+
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function keywordMatches(body = "", keyword = "") {
+  const normalizedKeyword = String(keyword).toLowerCase().trim();
+
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  if (/^[a-z0-9]{1,3}$/i.test(normalizedKeyword)) {
+    return new RegExp(`\\b${escapeRegExp(normalizedKeyword)}\\b`, "i").test(body);
+  }
+
+  return body.includes(normalizedKeyword);
 }
 
 function participantKnownToBundle(participant = "", bundle = {}) {
@@ -102,9 +121,10 @@ function businessThread(item = {}, config = {}, bundle = {}) {
   const whitelisted = whitelistSet(config).has(normalizedParticipant) || (normalizedPhone && whitelistSet(config).has(normalizedPhone));
   const blacklisted = blacklistSet(config).has(normalizedParticipant) || (normalizedPhone && blacklistSet(config).has(normalizedPhone));
   const matchedKeywords = uniqueStrings(
-    (config.businessKeywords ?? []).filter((keyword) => keyword && body.includes(String(keyword).toLowerCase()))
+    (config.businessKeywords ?? []).filter((keyword) => keywordMatches(body, keyword))
   );
-  const strongKeywordMatch = STRONG_BUSINESS_KEYWORDS.some((keyword) => body.includes(keyword));
+  const excludedKeywordMatch = (config.excludedKeywords ?? []).some((keyword) => keywordMatches(body, keyword));
+  const strongKeywordMatch = STRONG_BUSINESS_KEYWORDS.some((keyword) => keywordMatches(body, keyword));
   const keywordMatch = strongKeywordMatch || matchedKeywords.length >= 2;
   const relationshipMatch = ["customer", "supplier"].includes(item.relationship?.relationship);
   const isPhoneOnlyParticipant = Boolean(normalizedPhone) && !participant.includes("@");
@@ -113,7 +133,7 @@ function businessThread(item = {}, config = {}, bundle = {}) {
     item.silo?.name === "noise";
   const knownParticipant = participantKnownToBundle(participant, bundle);
 
-  if (blacklisted) {
+  if (blacklisted || excludedKeywordMatch) {
     return false;
   }
 
@@ -122,6 +142,35 @@ function businessThread(item = {}, config = {}, bundle = {}) {
   }
 
   return whitelisted || knownParticipant || (!isPhoneOnlyParticipant && relationshipMatch) || keywordMatch;
+}
+
+function unknownContactCandidate(item = {}, config = {}, bundle = {}) {
+  const participant = participantValue(item);
+  const normalizedPhone = normalizePhone(participant);
+  const body = `${item.subject || ""}\n${item.summary || ""}\n${item.sourceRecords?.map((record) => record.text).join("\n") || ""}`.toLowerCase();
+  const matchedKeywords = uniqueStrings(
+    (config.businessKeywords ?? []).filter((keyword) => keywordMatches(body, keyword))
+  );
+  const blacklisted = blacklistSet(config).has(participant.toLowerCase()) || (normalizedPhone && blacklistSet(config).has(normalizedPhone));
+  const excludedKeywordMatch = (config.excludedKeywords ?? []).some((keyword) => keywordMatches(body, keyword));
+
+  if (!normalizedPhone || participant.includes("@") || blacklisted || excludedKeywordMatch || participantKnownToBundle(participant, bundle)) {
+    return null;
+  }
+
+  if (matchedKeywords.length < 2 && !STRONG_BUSINESS_KEYWORDS.some((keyword) => keywordMatches(body, keyword))) {
+    return null;
+  }
+
+  return {
+    contact: participant,
+    phone: normalizedPhone,
+    subject: subjectValue(item),
+    relationship: item.relationship?.relationship || "",
+    silo: item.silo?.name || "",
+    matched_keywords: matchedKeywords.slice(0, 6),
+    suggested_action: "Assign this phone number to a known customer, supplier, employee, or add it to do-not-include."
+  };
 }
 
 function urgentThread(item = {}, config = {}) {
@@ -237,6 +286,7 @@ export async function buildMessagesMemorySection({
   section.business_threads = relevantThreads.map(compactThreadItem).slice(0, 12);
   section.unanswered_messages = unansweredThreads.map(compactThreadItem).slice(0, 10);
   section.memory_candidates = memoryCandidates.slice(0, 20);
+  section.unknown_contacts = analyzedThreads.map((item) => unknownContactCandidate(item, normalizedConfig, bundle)).filter(Boolean).slice(0, 12);
   section.suggested_followups = followupItems(unansweredThreads).slice(0, 10);
   section.low_priority_summary = lowPrioritySummaries(lowPriorityThreads);
 

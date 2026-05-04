@@ -5,6 +5,7 @@ import { analyzeThread } from "./email-triage.mjs";
 import { fetchRecentThreads, getProfile, sendEmail } from "./gmail-client.mjs";
 import { enrichThreadsWithWorkspaceArtifacts } from "./google-workspace-client.mjs";
 import { runMessagesMemorySource } from "./messages-memory.mjs";
+import { filterAnalyzedThreads } from "./brief-control.mjs";
 
 async function loadKnowledgeBundle(bundlePath) {
   if (!bundlePath) {
@@ -33,6 +34,7 @@ export async function runAutoBrief({
   send = false,
   recipient,
   decorateAnalyzedThreads,
+  briefControl = {},
   timeZone = "America/New_York",
   locale = "en-US"
 } = {}) {
@@ -67,6 +69,7 @@ export async function runAutoBrief({
   let analyzedThreads = filterLowSignalThreads(
     enrichedThreads.map((thread) => analyzeThread(thread, resolvedBundle))
   );
+  analyzedThreads = filterAnalyzedThreads(analyzedThreads, briefControl);
 
   if (typeof decorateAnalyzedThreads === "function") {
     analyzedThreads = await decorateAnalyzedThreads(analyzedThreads);

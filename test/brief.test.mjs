@@ -366,6 +366,7 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
   assert.ok(brief.includes("Courtney Quinn"));
   assert.ok(brief.includes("Gmail: https://mail.google.com/mail/u/0/#inbox/191abc123def4567"));
   assert.ok(brief.includes("Review: https://clearedge-daily-brief.netlify.app/review-action.html?id=abc&token=def"));
+  assert.ok(brief.includes("Decide in ChatGPT: https://chatgpt.com/?q="));
   assert.ok(brief.includes("ShelfCycle Follow-Through"));
 });
 
@@ -646,4 +647,5 @@ test("buildDailyBrief appends a Message Memory section when provided", () => {
   assert.ok(brief.includes("Kunal Butala | Text thread with +17329836870"));
   assert.ok(brief.includes("Memory Candidates"));
   assert.ok(brief.includes("purchase_signal"));
+  assert.ok(brief.includes("Decide in ChatGPT: https://chatgpt.com/?q="));
 });

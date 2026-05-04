@@ -16,6 +16,7 @@ const documentsEl = document.querySelector("#documents");
 const rawJsonEl = document.querySelector("#raw-json");
 const copyJsonButton = document.querySelector("#copy-json");
 const openLocalSubmitEl = document.querySelector("#open-local-submit");
+const openChatGptEl = document.querySelector("#open-chatgpt");
 
 let currentAction = null;
 
@@ -119,6 +120,7 @@ function renderAction(action = {}) {
   setOutput(documentsEl, formatDocuments(action.workspaceArtifacts ?? {}));
   setOutput(rawJsonEl, JSON.stringify(action, null, 2));
   openLocalSubmitEl.href = `http://localhost:4318/review-submit.html?reviewUrl=${encodeURIComponent(window.location.href)}`;
+  openChatGptEl.href = action.chatGptUrl || "https://chatgpt.com/";
 }
 
 async function loadReviewAction() {

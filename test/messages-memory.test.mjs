@@ -92,3 +92,52 @@ test("buildMessagesMemorySection summarizes urgent business texts and stores san
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("buildMessagesMemorySection surfaces unknown business-looking phone contacts without raw text", async () => {
+  const section = await buildMessagesMemorySection({
+    config: {
+      enabled: true,
+      businessKeywords: ["pricing", "sds", "benzyl alcohol"],
+      urgentKeywords: [],
+      excludedKeywords: []
+    },
+    bundle: {
+      lookups: {
+        customerContactPhones: [],
+        supplierContactPhones: [],
+        customerPhones: [],
+        supplierPhones: [],
+        internalPhones: []
+      }
+    },
+    analyzedThreads: [
+      {
+        threadId: "messages-chat-3",
+        relationship: { relationship: "solicitation", subtype: "newsletter" },
+        state: { state: "needs_attention" },
+        silo: { name: "noise" },
+        lastTimestamp: Date.UTC(2026, 4, 4, 10, 0, 0),
+        subject: "Text thread with +18035550100",
+        externalParticipants: [{ name: "", email: "+18035550100", domain: "" }],
+        sourceRecords: [
+          {
+            messageId: 200,
+            timestamp: Date.UTC(2026, 4, 4, 9, 0, 0),
+            text: "Can you quote benzyl alcohol pricing and SDS?",
+            isFromMe: false,
+            hasAttachment: false
+          }
+        ],
+        analysis: {
+          rawExtracts: { keyPoints: ["Can you quote benzyl alcohol pricing and SDS?"] },
+          roleWorklists: { owner: [], sales: [], procurement: [] },
+          draftNote: { summary: "Can you quote benzyl alcohol pricing and SDS?" }
+        }
+      }
+    ]
+  });
+
+  assert.equal(section.unknown_contacts.length, 1);
+  assert.equal(section.unknown_contacts[0].phone, "8035550100");
+  assert.ok(!JSON.stringify(section.unknown_contacts).includes("Can you quote"));
+});

@@ -126,7 +126,8 @@ input[type="file"] {
 }
 
 select,
-textarea {
+textarea,
+input[type="text"] {
   width: 100%;
   border: 1px solid rgba(22, 32, 43, 0.14);
   border-radius: 16px;
@@ -134,7 +135,8 @@ textarea {
   color: var(--ink);
 }
 
-select {
+select,
+input[type="text"] {
   padding: 12px 14px;
 }
 
@@ -203,6 +205,18 @@ button:hover {
   display: block;
   color: var(--muted);
   text-transform: capitalize;
+}
+
+.brief-control-grid {
+  display: grid;
+  grid-template-columns: 180px minmax(260px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin: 14px 0;
+}
+
+.brief-control-action {
+  padding-bottom: 0;
 }
 
 .result-section + .result-section {

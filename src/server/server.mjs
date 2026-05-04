@@ -1,5 +1,5 @@
 import http from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 import { analyzeInput } from "../lib/analyze.mjs";
 import { importCsv } from "../lib/csv-import.mjs";
 import { createKnowledgeBundle } from "../lib/knowledge-bundle.mjs";
+import { addExclusion, loadBriefControl, saveBriefControl } from "../lib/brief-control.mjs";
+import { loadLocalReviewAction, sanitizeReviewAction } from "../lib/local-review-actions.mjs";
 import { getNoteSubmissionTarget } from "../lib/shelfcycle-submit.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,6 +21,9 @@ const DEFAULT_INTELLIGENCE_FILE = path.join(dataRoot, "clearedge-intelligence.js
 const LEGACY_INTELLIGENCE_FILE = path.join(dataRoot, "clearedge-brain-notebook-intelligence.json");
 const AUTOMATION_RUNNER_PATH = path.join(projectRoot, "src/lib/shelfcycle-automation-runner.mjs");
 const LOCAL_DAILY_BRIEF_RUNNER_PATH = path.join(projectRoot, "apps/daily-brief/run-local-scheduled.mjs");
+const LOCAL_DAILY_BRIEF_RUNS_DIR = path.join(projectRoot, ".local/daily-brief-runs");
+const LOCAL_BRIEF_CONTROL_PATH = path.join(projectRoot, ".local/brief-control.local.json");
+const LOCAL_REVIEW_ACTIONS_DIR = path.join(projectRoot, ".local/review-actions");
 const execFileAsync = promisify(execFile);
 
 const MIME_TYPES = {
@@ -160,6 +165,87 @@ async function requestLocalDailyBrief(payload = {}) {
   return JSON.parse(stdout.trim() || "{}");
 }
 
+async function latestFileByPrefix(directory, prefix) {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const files = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+        .map(async (entry) => {
+          const filePath = path.join(directory, entry.name);
+          const stats = await stat(filePath);
+          return { filePath, name: entry.name, mtimeMs: stats.mtimeMs };
+        })
+    );
+
+    return files.sort((left, right) => right.mtimeMs - left.mtimeMs)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function nextDailyRun({ hour = 7, minute = 0 } = {}) {
+  const next = new Date();
+  next.setHours(hour, minute, 0, 0);
+
+  if (next.getTime() <= Date.now()) {
+    next.setDate(next.getDate() + 1);
+  }
+
+  return next.toISOString();
+}
+
+async function getDailyBriefStatus() {
+  const latestSummaryFile = await latestFileByPrefix(LOCAL_DAILY_BRIEF_RUNS_DIR, "run-summary-");
+  const latestLogFile = path.join(LOCAL_DAILY_BRIEF_RUNS_DIR, "daily-brief-runner.log");
+  const latestSummary = latestSummaryFile ? await readJsonIfPresent(latestSummaryFile.filePath) : null;
+  const logText = await readFile(latestLogFile, "utf8").catch(() => "");
+  const logLines = logText.trim().split("\n").filter(Boolean);
+
+  return {
+    ok: true,
+    nextRunAt: nextDailyRun(),
+    lastRun: latestSummary,
+    lastRunSummaryPath: latestSummaryFile?.filePath ?? "",
+    lastError: latestSummary?.ok === false ? latestSummary.error : "",
+    recentLogLines: logLines.slice(-8)
+  };
+}
+
+async function getUnknownContactCleanup() {
+  const latestSummaryFile = await latestFileByPrefix(LOCAL_DAILY_BRIEF_RUNS_DIR, "run-summary-");
+  const latestSummary = latestSummaryFile ? await readJsonIfPresent(latestSummaryFile.filePath) : null;
+
+  return {
+    ok: true,
+    sourceBriefPath: latestSummary?.briefPath ?? "",
+    unknownContacts: latestSummary?.unknownContacts ?? []
+  };
+}
+
+async function loadLocalReviewActionForRequest(url) {
+  const actionId = url.searchParams.get("id") || "";
+  const token = url.searchParams.get("token") || "";
+
+  if (!actionId || !token) {
+    throw new Error("Missing review action id or token.");
+  }
+
+  const action = await loadLocalReviewAction(LOCAL_REVIEW_ACTIONS_DIR, actionId);
+
+  if (!action) {
+    throw new Error("Review action not found.");
+  }
+
+  if (action.viewToken !== token) {
+    const error = new Error("Invalid review token.");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  return sanitizeReviewAction(action);
+}
+
 async function readJsonIfPresent(filePath) {
   try {
     return JSON.parse(await readFile(filePath, "utf8"));
@@ -229,6 +315,30 @@ function createServer() {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/daily-brief/status") {
+        json(response, 200, await getDailyBriefStatus());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/daily-brief/exclusions") {
+        json(response, 200, {
+          ok: true,
+          control: await loadBriefControl(LOCAL_BRIEF_CONTROL_PATH)
+        });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/daily-brief/unknown-contacts") {
+        json(response, 200, await getUnknownContactCleanup());
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/review-action") {
+        const action = await loadLocalReviewActionForRequest(url);
+        json(response, 200, { ok: true, action });
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/analyze") {
         const payload = await readBody(request);
         const result = analyzeInput({
@@ -289,6 +399,18 @@ function createServer() {
         json(response, 200, {
           ok: true,
           result
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/daily-brief/exclusions") {
+        const payload = await readBody(request);
+        const control = await loadBriefControl(LOCAL_BRIEF_CONTROL_PATH);
+        const nextControl = addExclusion(control, payload);
+        await saveBriefControl(LOCAL_BRIEF_CONTROL_PATH, nextControl);
+        json(response, 200, {
+          ok: true,
+          control: nextControl
         });
         return;
       }

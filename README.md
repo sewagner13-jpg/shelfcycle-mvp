@@ -324,6 +324,7 @@ Manual request from the local MVP:
 - Start the local app at `http://localhost:4318`
 - Use `Preview Brief` to generate a local copy without sending
 - Use `Send Brief Now` to email the combined Gmail and Messages brief immediately
+- Use `Brief Controls` to see last run, next run, last error, unknown message contacts, and the current do-not-include list
 
 The local API endpoint behind those buttons is:
 
@@ -332,6 +333,26 @@ curl -X POST http://localhost:4318/api/daily-brief/request \
   -H "content-type: application/json" \
   --data '{"dryRun":true}'
 ```
+
+Do-not-include entries can be added from the local app or API:
+
+```bash
+curl -X POST http://localhost:4318/api/daily-brief/exclusions \
+  -H "content-type: application/json" \
+  --data '{"type":"domain","value":"example.com"}'
+```
+
+Supported exclusion types:
+- `email`
+- `domain`
+- `phone`
+- `keyword`
+
+Approval-first review links:
+- Core customer/supplier items in local briefs get a `Review:` link to a local review packet
+- Suggested next steps also get a `Decide in ChatGPT:` link so Sean can discuss the suggested next step before choosing a platform action
+- Review packets are stored locally under `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/review-actions/`
+- Nothing is written to ShelfCycle unless Sean opens the local submit page and explicitly approves an action
 
 Disable the scheduled job:
 

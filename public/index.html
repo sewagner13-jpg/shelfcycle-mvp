@@ -34,6 +34,39 @@
 
       <section class="panel controls">
         <div class="panel-header">
+          <h2>Brief Controls</h2>
+          <div class="actions">
+            <button id="refresh-brief-status" class="ghost">Refresh Status</button>
+          </div>
+        </div>
+        <div id="brief-run-status" class="stat-grid"></div>
+        <div class="brief-control-grid">
+          <div>
+            <label for="exclude-type">Do Not Include Type</label>
+            <select id="exclude-type">
+              <option value="domain">Domain</option>
+              <option value="email">Email</option>
+              <option value="phone">Phone</option>
+              <option value="keyword">Keyword</option>
+            </select>
+          </div>
+          <div>
+            <label for="exclude-value">Value</label>
+            <input id="exclude-value" type="text" placeholder="example.com, name@example.com, 8035551212, newsletter..." />
+          </div>
+          <div class="brief-control-action">
+            <button id="add-exclusion" class="ghost danger">Add Do Not Include</button>
+          </div>
+        </div>
+        <pre id="exclusion-list" class="text-block small">Loading exclusions...</pre>
+        <div class="result-section">
+          <h3>Unknown Contact Cleanup</h3>
+          <pre id="unknown-contacts" class="text-block small">Loading unknown contacts...</pre>
+        </div>
+      </section>
+
+      <section class="panel controls">
+        <div class="panel-header">
           <h2>Reference Data</h2>
           <div class="actions">
             <button id="load-sample" class="ghost">Load Sample Data</button>

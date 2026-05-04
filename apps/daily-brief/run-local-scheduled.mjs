@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runAutoBrief } from "../../src/lib/auto-brief.mjs";
+import { loadBriefControl } from "../../src/lib/brief-control.mjs";
+import { attachLocalReviewActions } from "../../src/lib/local-review-actions.mjs";
 import { loadMessagesMemoryConfig } from "../../src/lib/messages-memory-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -12,6 +14,8 @@ const runsDir = path.join(localDir, "daily-brief-runs");
 const defaultBundlePath = path.join(localDir, "clearedge-knowledge-local.json");
 const defaultSettingsPath = path.join(localDir, "hosted-brief-settings.local.json");
 const defaultMessagesConfigPath = path.join(localDir, "messages-memory-config.local.json");
+const defaultBriefControlPath = path.join(localDir, "brief-control.local.json");
+const defaultReviewActionsDir = path.join(localDir, "review-actions");
 const defaultLockDir = path.join(localDir, "daily-brief-runner.lock");
 
 function parseArgs(argv = []) {
@@ -19,6 +23,9 @@ function parseArgs(argv = []) {
     bundle: defaultBundlePath,
     settings: defaultSettingsPath,
     messagesMemoryConfig: defaultMessagesConfigPath,
+    briefControl: defaultBriefControlPath,
+    reviewActionsDir: defaultReviewActionsDir,
+    reviewBaseUrl: "http://localhost:4318",
     outDir: runsDir,
     hours: null,
     maxMessages: null,
@@ -45,6 +52,24 @@ function parseArgs(argv = []) {
 
     if (value === "--messages-memory-config") {
       args.messagesMemoryConfig = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (value === "--brief-control") {
+      args.briefControl = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (value === "--review-actions-dir") {
+      args.reviewActionsDir = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (value === "--review-base-url") {
+      args.reviewBaseUrl = argv[index + 1];
       index += 1;
       continue;
     }
@@ -153,11 +178,24 @@ async function main() {
   try {
     releaseLock = await acquireLock(args.lockDir);
 
-    const [bundle, settings, messagesConfig] = await Promise.all([
+    const [bundle, settings, messagesConfig, briefControl] = await Promise.all([
       readJson(args.bundle, "knowledge bundle"),
       readJson(args.settings, "Gmail settings"),
-      loadMessagesMemoryConfig(path.resolve(args.messagesMemoryConfig))
+      loadMessagesMemoryConfig(path.resolve(args.messagesMemoryConfig)),
+      loadBriefControl(path.resolve(args.briefControl))
     ]);
+    const mergedMessagesConfig = {
+      ...messagesConfig,
+      blacklist: [
+        ...(messagesConfig.blacklist ?? []),
+        ...(briefControl.exclude?.emails ?? []),
+        ...(briefControl.exclude?.phones ?? [])
+      ],
+      excludedKeywords: [
+        ...(messagesConfig.excludedKeywords ?? []),
+        ...(briefControl.exclude?.keywords ?? [])
+      ]
+    };
 
     const result = await runAutoBrief({
       bundle,
@@ -166,13 +204,19 @@ async function main() {
       recipient: args.recipient || settings.recipient,
       hours: args.hours ?? settings.hours ?? 24,
       maxMessages: args.maxMessages ?? settings.maxMessages ?? 200,
-      maxMessageThreads: args.maxMessageThreads ?? settings.maxMessageThreads ?? messagesConfig.maxThreads,
+      maxMessageThreads: args.maxMessageThreads ?? settings.maxMessageThreads ?? mergedMessagesConfig.maxThreads,
       query: settings.query,
       includeMessages: true,
-      messagesConfig,
+      messagesConfig: mergedMessagesConfig,
+      briefControl,
       send: !args.dryRun,
       timeZone: settings.timeZone || "America/New_York",
-      locale: settings.locale || "en-US"
+      locale: settings.locale || "en-US",
+      decorateAnalyzedThreads: (analyzedThreads) =>
+        attachLocalReviewActions(analyzedThreads, {
+          storageDir: path.resolve(args.reviewActionsDir),
+          baseUrl: args.reviewBaseUrl
+        })
     });
 
     const messageMemory = result.messageMemory ?? {};
@@ -185,7 +229,10 @@ async function main() {
       sendResultId: result.sendResult?.id ?? "",
       emailThreads: result.analyzedThreads?.length ?? 0,
       messageBusinessThreads: messageMemory.business_threads?.length ?? 0,
+      unknownMessageContacts: messageMemory.unknown_contacts?.length ?? 0,
+      unknownContacts: messageMemory.unknown_contacts ?? [],
       messageFollowups: messageMemory.suggested_followups?.length ?? 0,
+      reviewLinks: result.analyzedThreads?.filter((item) => item.reviewUrl).length ?? 0,
       briefPath
     };
 
@@ -193,7 +240,7 @@ async function main() {
     await writeFile(runSummaryPath, JSON.stringify(summary, null, 2), "utf8");
     await logLine(
       logPath,
-      `finished ok; emailThreads=${summary.emailThreads}; messageBusinessThreads=${summary.messageBusinessThreads}; sent=${summary.sent}; brief=${briefPath}`
+      `finished ok; emailThreads=${summary.emailThreads}; messageBusinessThreads=${summary.messageBusinessThreads}; unknownMessageContacts=${summary.unknownMessageContacts}; reviewLinks=${summary.reviewLinks}; sent=${summary.sent}; brief=${briefPath}`
     );
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } catch (error) {
