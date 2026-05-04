@@ -15,6 +15,7 @@ function parseArgs(argv = []) {
     maxMessageThreads: 120,
     query: "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\"",
     includeMessages: false,
+    briefFormat: "action_cards",
     messagesDb: "",
     messagesMemoryConfig: "",
     settings: "",
@@ -119,6 +120,13 @@ function parseArgs(argv = []) {
     if (value === "--include-messages") {
       args.includeMessages = true;
       args.provided.add("includeMessages");
+      continue;
+    }
+
+    if (value === "--brief-format") {
+      args.briefFormat = argv[index + 1] || "action_cards";
+      args.provided.add("briefFormat");
+      index += 1;
     }
   }
 
@@ -155,6 +163,7 @@ async function main() {
     maxMessageThreads: value("maxMessageThreads", args.maxMessageThreads),
     query: value("query", args.query),
     includeMessages: messagesMemoryConfig.enabled,
+    briefFormat: value("briefFormat", args.briefFormat),
     messagesConfig: messagesMemoryConfig.enabled
       ? {
           ...messagesMemoryConfig,

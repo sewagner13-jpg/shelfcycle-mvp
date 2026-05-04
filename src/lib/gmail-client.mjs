@@ -160,13 +160,14 @@ export async function fetchRecentThreads({
   return threads;
 }
 
-export async function sendEmail({ to, subject, body, config }) {
+export async function sendEmail({ to, subject, body = "", html = "", config }) {
+  const contentType = html ? "text/html" : "text/plain";
   const mime = [
     `To: ${to}`,
     `Subject: ${subject}`,
-    "Content-Type: text/plain; charset=UTF-8",
+    `Content-Type: ${contentType}; charset=UTF-8`,
     "",
-    body
+    html || body
   ].join("\n");
 
   return gmailRequest("messages/send", {

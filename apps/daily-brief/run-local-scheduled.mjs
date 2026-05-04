@@ -31,6 +31,7 @@ function parseArgs(argv = []) {
     maxMessages: null,
     maxMessageThreads: null,
     recipient: "",
+    briefFormat: "action_cards",
     dryRun: false,
     lockDir: defaultLockDir
   };
@@ -100,6 +101,12 @@ function parseArgs(argv = []) {
 
     if (value === "--recipient") {
       args.recipient = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (value === "--brief-format") {
+      args.briefFormat = argv[index + 1] || "action_cards";
       index += 1;
       continue;
     }
@@ -207,6 +214,7 @@ async function main() {
       maxMessageThreads: args.maxMessageThreads ?? settings.maxMessageThreads ?? mergedMessagesConfig.maxThreads,
       query: settings.query,
       includeMessages: true,
+      briefFormat: settings.briefFormat || args.briefFormat,
       messagesConfig: mergedMessagesConfig,
       briefControl,
       send: !args.dryRun,

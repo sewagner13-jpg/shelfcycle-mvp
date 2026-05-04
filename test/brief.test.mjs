@@ -362,11 +362,14 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
     organization: "ClearEdge Solutions"
   });
 
-  assert.ok(brief.includes("Needs Attention"));
+  assert.ok(brief.includes("Top Actions"));
   assert.ok(brief.includes("Courtney Quinn"));
-  assert.ok(brief.includes("Gmail: https://mail.google.com/mail/u/0/#inbox/191abc123def4567"));
-  assert.ok(brief.includes("Review: https://clearedge-daily-brief.netlify.app/review-action.html?id=abc&token=def"));
-  assert.ok(brief.includes("Decide in ChatGPT: https://chatgpt.com/?q="));
+  assert.ok(brief.includes(">Gmail</a>"));
+  assert.ok(brief.includes(">Review Packet</a>"));
+  assert.ok(brief.includes(">Decide in ChatGPT</a>"));
+  assert.ok(!brief.includes("Gmail: https://"));
+  assert.ok(!brief.includes("Review: https://"));
+  assert.ok(!brief.includes("Decide in ChatGPT: https://"));
   assert.ok(brief.includes("ShelfCycle Follow-Through"));
 });
 
@@ -440,9 +443,9 @@ test("buildDailyBrief suppresses bogus ShelfCycle follow-through for solicitatio
   });
 
   assert.ok(brief.includes("Review with finance or ops; no ShelfCycle update needed."));
-  assert.ok(brief.includes("Ignore unless strategically relevant."));
-  assert.ok(brief.includes("Review the draft note and action plan for 2026-05-04 - Re: G301 pricing."));
-  assert.ok(brief.includes("Open review packet: https://clearedge-daily-brief.netlify.app/review-action.html?id=abc&token=def"));
+  assert.ok(brief.includes("1 likely solicitation(s) hidden."));
+  assert.ok(brief.includes("2026-05-04 - Re: G301 pricing"));
+  assert.ok(brief.includes(">Review Packet</a>"));
   assert.ok(!brief.includes("Review whether 2026-05-04 - Your ADP Invoice should be logged as a ShelfCycle note or follow-up task."));
   assert.ok(!brief.includes("Review whether 2026-05-04 - Trade Show Offers should be logged as a ShelfCycle note or follow-up task."));
   assert.ok(!brief.includes("Create or review 1 new contact record(s) from 2026-05-04 - Trade Show Offers."));
@@ -487,7 +490,7 @@ test("buildDailyBrief surfaces ClearEdge intelligence on matched commercial thre
     organization: "ClearEdge Solutions"
   });
 
-  assert.ok(brief.includes("Intelligence: Price $12.86/lb (SO 030) / $13.13/lb for SO 120 packaging."));
+  assert.ok(brief.includes("Price $12.86/lb (SO 030) / $13.13/lb for SO 120 packaging."));
 });
 
 test("buildDailyBrief surfaces unique ClearEdge intelligence learning prompts and contradictions in a coverage appendix", () => {
@@ -569,11 +572,11 @@ test("buildDailyBrief surfaces unique ClearEdge intelligence learning prompts an
 
   assert.ok(brief.includes("ClearEdge Intelligence Coverage"));
   assert.ok(brief.includes("Add to Intelligence Library"));
-  assert.ok(brief.includes('Should "Mystery Resin XYZ" be added to the ClearEdge Intelligence library'));
+  assert.ok(brief.includes("Should &quot;Mystery Resin XYZ&quot; be added to the ClearEdge Intelligence library"));
   assert.ok(brief.includes("Reconcile with Intelligence"));
   assert.ok(brief.includes("Price differs from ClearEdge benchmark"));
 
-  const promptOccurrences = brief.match(/Should "Mystery Resin XYZ" be added/g) ?? [];
+  const promptOccurrences = brief.match(/Should &quot;Mystery Resin XYZ&quot; be added/g) ?? [];
   assert.equal(promptOccurrences.length, 1, "duplicate learning prompts should be de-duplicated");
 });
 
@@ -639,13 +642,9 @@ test("buildDailyBrief appends a Message Memory section when provided", () => {
   });
 
   assert.ok(brief.includes("Daily ClearEdge Communications Brief"));
-  assert.ok(brief.includes("Message Memory"));
-  assert.ok(brief.includes("- Message business threads: 0"));
-  assert.ok(brief.includes("- Message follow-ups: 1"));
-  assert.ok(brief.indexOf("Message Memory") < brief.indexOf("Needs Attention"));
-  assert.ok(brief.includes("Urgent Items"));
-  assert.ok(brief.includes("Kunal Butala | Text thread with +17329836870"));
-  assert.ok(brief.includes("Memory Candidates"));
-  assert.ok(brief.includes("purchase_signal"));
-  assert.ok(brief.includes("Decide in ChatGPT: https://chatgpt.com/?q="));
+  assert.ok(brief.includes("Text Messages"));
+  assert.ok(brief.includes("Suggested Text Follow-Ups"));
+  assert.ok(brief.indexOf("<h2>Text Messages") < brief.indexOf("<h2>Waiting on Others"));
+  assert.ok(brief.includes("Reply with Friday pickup timing."));
+  assert.ok(!brief.includes("Decide in ChatGPT: https://chatgpt.com/?q="));
 });

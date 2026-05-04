@@ -24,6 +24,7 @@ export default async () => {
   const timeZone = settings.timeZone || getEnv("DAILY_BRIEF_TIMEZONE", "America/New_York");
   const locale = settings.locale || getEnv("DAILY_BRIEF_LOCALE", "en-US");
   const siteUrl = settings.siteUrl || getEnv("URL") || getEnv("DEPLOY_PRIME_URL");
+  const briefFormat = settings.briefFormat || getEnv("DAILY_BRIEF_FORMAT", "action_cards");
 
   const result = await runAutoBrief({
     bundle,
@@ -33,6 +34,7 @@ export default async () => {
     hours,
     maxMessages,
     query,
+    briefFormat,
     timeZone,
     locale,
     decorateAnalyzedThreads: (analyzedThreads) => attachReviewActions(analyzedThreads, { siteUrl })

@@ -35,6 +35,7 @@ export async function runAutoBrief({
   recipient,
   decorateAnalyzedThreads,
   briefControl = {},
+  briefFormat = "action_cards",
   timeZone = "America/New_York",
   locale = "en-US"
 } = {}) {
@@ -80,6 +81,7 @@ export async function runAutoBrief({
     organization: resolvedBundle.organization,
     title: includeMessages ? "Daily ClearEdge Communications Brief" : "Daily ClearEdge Email Brief",
     messageMemory,
+    briefFormat,
     timeZone,
     locale
   });
@@ -92,6 +94,7 @@ export async function runAutoBrief({
       to,
       subject: `Daily ShelfCycle Brief - ${new Date().toISOString().slice(0, 10)}`,
       body: brief,
+      html: briefFormat === "legacy" ? "" : brief,
       config: gmailConfig
     });
   }
