@@ -1,5 +1,5 @@
 import { dedupeObjects, extractDomain, safeArray, uniqueStrings, compactWhitespace } from "./normalize.mjs";
-import { deriveNotebookEntityAliases, normalizeNotebookIntelligence } from "./notebook-intelligence.mjs";
+import { deriveClearEdgeEntityAliases, normalizeClearEdgeIntelligence } from "./clearedge-intelligence.mjs";
 
 function normalizeEntity(entity = {}) {
   return Object.fromEntries(
@@ -123,7 +123,7 @@ function buildCustomerMap(customers = []) {
   return map;
 }
 
-function buildLookupMaps({ customers, contacts, products, suppliers, opsVendors, internalUsers, internalDomains, notebookIntelligence }) {
+function buildLookupMaps({ customers, contacts, products, suppliers, opsVendors, internalUsers, internalDomains, clearedgeIntelligence }) {
   const customerDomains = uniqueStrings([
     ...deriveCustomerDomains(customers),
     ...deriveUnambiguousRelationshipDomains(contacts, "customer")
@@ -140,7 +140,7 @@ function buildLookupMaps({ customers, contacts, products, suppliers, opsVendors,
   const productAliases = deriveProductAliases(products);
   const opsVendorNames = deriveVendorNames(opsVendors);
   const opsVendorDomains = deriveVendorDomains(opsVendors);
-  const notebookEntityAliases = deriveNotebookEntityAliases(notebookIntelligence);
+  const clearedgeEntityAliases = deriveClearEdgeEntityAliases(clearedgeIntelligence);
 
   return {
     customerDomains,
@@ -152,7 +152,8 @@ function buildLookupMaps({ customers, contacts, products, suppliers, opsVendors,
     internalEmails,
     internalDomains: uniqueStrings(internalDomains),
     productAliases,
-    notebookEntityAliases,
+    clearedgeEntityAliases,
+    notebookEntityAliases: clearedgeEntityAliases,
     opsVendorNames,
     opsVendorDomains
   };
@@ -194,8 +195,8 @@ export function createKnowledgeBundle({
     safeArray(internalUsers).map(normalizeEntity),
     (item) => item.email || item.name || JSON.stringify(item)
   );
-  const notebookIntelligence = dedupeObjects(
-    normalizeNotebookIntelligence(referenceData.notebookIntelligence ?? []),
+  const clearedgeIntelligence = dedupeObjects(
+    normalizeClearEdgeIntelligence(referenceData.clearedgeIntelligence ?? referenceData.notebookIntelligence ?? []),
     (item) => item.id || item.entity || JSON.stringify(item)
   );
 
@@ -207,7 +208,7 @@ export function createKnowledgeBundle({
     opsVendors: normalizedOpsVendors,
     internalUsers: normalizedInternalUsers,
     internalDomains,
-    notebookIntelligence
+    clearedgeIntelligence
   });
   const customerMap = buildCustomerMap(customers);
 
@@ -224,7 +225,8 @@ export function createKnowledgeBundle({
     contacts,
     products,
     locations,
-    notebookIntelligence,
+    clearedgeIntelligence,
+    notebookIntelligence: clearedgeIntelligence,
     suppliers: normalizedSuppliers,
     opsVendors: normalizedOpsVendors,
     lookups

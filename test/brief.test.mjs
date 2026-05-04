@@ -51,7 +51,7 @@ test("createKnowledgeBundle builds lookup maps from reference data", () => {
       ],
       products: [{ code: "G301", name: "ACCESS Organosilane G301", supplier: "ACCESS Rudolf Technologies" }],
       locations: [],
-      notebookIntelligence: [
+      clearedgeIntelligence: [
         {
           entity: "ACCESS Organosilane G301",
           aliases: ["G301", "VTMO"],
@@ -75,7 +75,7 @@ test("createKnowledgeBundle builds lookup maps from reference data", () => {
   assert.ok(bundle.lookups.opsVendorNames.includes("ADP"));
   assert.ok(bundle.lookups.notebookEntityAliases.includes("G301"));
   assert.ok(bundle.normalizedProducts.length === 1);
-  assert.equal(bundle.notebookIntelligence[0].entity, "ACCESS Organosilane G301");
+  assert.equal(bundle.clearedgeIntelligence[0].entity, "ACCESS Organosilane G301");
 });
 
 test("analyzeThread classifies customer thread and detects waiting state", () => {
@@ -298,6 +298,7 @@ test("analyzeThread routes technical-document threads into the compliance silo",
 test("buildDailyBrief groups analyzed threads into actionable sections", () => {
   const analyzedThreads = [
     {
+      threadId: "191abc123def4567",
       relationship: { relationship: "customer" },
       silo: { name: "commercial" },
       state: { state: "needs_attention" },
@@ -327,6 +328,7 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
 
   assert.ok(brief.includes("Needs Attention"));
   assert.ok(brief.includes("Courtney Quinn"));
+  assert.ok(brief.includes("Gmail: https://mail.google.com/mail/u/0/#inbox/191abc123def4567"));
   assert.ok(brief.includes("Review: https://clearedge-daily-brief.netlify.app/review-action.html?id=abc&token=def"));
   assert.ok(brief.includes("ShelfCycle Follow-Through"));
 });
@@ -409,7 +411,7 @@ test("buildDailyBrief suppresses bogus ShelfCycle follow-through for solicitatio
   assert.ok(!brief.includes("Create or review 1 new contact record(s) from 2026-05-04 - Trade Show Offers."));
 });
 
-test("buildDailyBrief surfaces Notebook intelligence on matched commercial threads", () => {
+test("buildDailyBrief surfaces ClearEdge intelligence on matched commercial threads", () => {
   const analyzedThreads = [
     {
       relationship: { relationship: "supplier", subtype: "core_supplier" },
@@ -430,7 +432,7 @@ test("buildDailyBrief surfaces Notebook intelligence on matched commercial threa
         suggestedCreates: [],
         warnings: [],
         draftNote: { title: "2026-05-04 - RUCOLAC B-321 pricing", summary: "Pricing update came in for RUCOLAC B-321." },
-        notebookContext: {
+        intelligenceContext: {
           status: "matched",
           matchedEntry: {
             lastKnownGoodPrice: "$12.86/lb (SO 030)",
@@ -448,10 +450,10 @@ test("buildDailyBrief surfaces Notebook intelligence on matched commercial threa
     organization: "ClearEdge Solutions"
   });
 
-  assert.ok(brief.includes("Notebook: Price $12.86/lb (SO 030) / $13.13/lb for SO 120 packaging."));
+  assert.ok(brief.includes("Intelligence: Price $12.86/lb (SO 030) / $13.13/lb for SO 120 packaging."));
 });
 
-test("buildDailyBrief surfaces unique Notebook learning prompts and contradictions in a coverage appendix", () => {
+test("buildDailyBrief surfaces unique ClearEdge intelligence learning prompts and contradictions in a coverage appendix", () => {
   const analyzedThreads = [
     {
       relationship: { relationship: "customer", subtype: "core_customer" },
@@ -467,8 +469,8 @@ test("buildDailyBrief surfaces unique Notebook learning prompts and contradictio
         suggestedCreates: [],
         warnings: [],
         draftNote: { title: "2026-05-04 - Re: Mystery Resin XYZ" },
-        learningPrompt: 'Should "Mystery Resin XYZ" be added to the NotebookLM source of truth for future historical context?',
-        notebookContext: {
+        learningPrompt: 'Should "Mystery Resin XYZ" be added to the ClearEdge Intelligence library for future historical context?',
+        intelligenceContext: {
           status: "no_historical_context",
           primaryChemicalEntity: { name: "Mystery Resin XYZ" },
           matchedEntry: null,
@@ -490,8 +492,8 @@ test("buildDailyBrief surfaces unique Notebook learning prompts and contradictio
         suggestedCreates: [],
         warnings: [],
         draftNote: { title: "2026-05-04 - Re: Mystery Resin XYZ pricing" },
-        learningPrompt: 'Should "Mystery Resin XYZ" be added to the NotebookLM source of truth for future historical context?',
-        notebookContext: {
+        learningPrompt: 'Should "Mystery Resin XYZ" be added to the ClearEdge Intelligence library for future historical context?',
+        intelligenceContext: {
           status: "no_historical_context",
           primaryChemicalEntity: { name: "Mystery Resin XYZ" },
           matchedEntry: null,
@@ -508,16 +510,16 @@ test("buildDailyBrief surfaces unique Notebook learning prompts and contradictio
       subject: "RUCOLAC B-321 quote update",
       externalParticipants: [{ name: "Jason", email: "jason@accessrudolftech.com", domain: "accessrudolftech.com" }],
       analysis: {
-        rawExtracts: { keyPoints: ["Quote came in different than Notebook"] },
+        rawExtracts: { keyPoints: ["Quote came in different than ClearEdge Intelligence"] },
         roleWorklists: { owner: [], sales: [], procurement: [] },
         suggestedCreates: [],
         warnings: [],
         draftNote: { title: "2026-05-04 - RUCOLAC B-321 quote update" },
-        notebookContext: {
+        intelligenceContext: {
           status: "matched",
           primaryChemicalEntity: { name: "RUCOLAC B-321" },
           matchedEntry: { entity: "RUCOLAC B-321", lastKnownGoodPrice: "$12.86/lb (SO 030)" },
-          contradictions: ["Price differs from Notebook benchmark: current $14.20/lb vs last known good $12.86/lb (SO 030)."]
+          contradictions: ["Price differs from ClearEdge benchmark: current $14.20/lb vs last known good $12.86/lb (SO 030)."]
         }
       }
     }
@@ -528,17 +530,17 @@ test("buildDailyBrief surfaces unique Notebook learning prompts and contradictio
     organization: "ClearEdge Solutions"
   });
 
-  assert.ok(brief.includes("Notebook Coverage"));
-  assert.ok(brief.includes("Add to Notebook"));
-  assert.ok(brief.includes('Should "Mystery Resin XYZ" be added to the NotebookLM source of truth'));
-  assert.ok(brief.includes("Reconcile with Notebook"));
-  assert.ok(brief.includes("Price differs from Notebook benchmark"));
+  assert.ok(brief.includes("ClearEdge Intelligence Coverage"));
+  assert.ok(brief.includes("Add to Intelligence Library"));
+  assert.ok(brief.includes('Should "Mystery Resin XYZ" be added to the ClearEdge Intelligence library'));
+  assert.ok(brief.includes("Reconcile with Intelligence"));
+  assert.ok(brief.includes("Price differs from ClearEdge benchmark"));
 
   const promptOccurrences = brief.match(/Should "Mystery Resin XYZ" be added/g) ?? [];
   assert.equal(promptOccurrences.length, 1, "duplicate learning prompts should be de-duplicated");
 });
 
-test("buildDailyBrief omits the Notebook Coverage section when there is nothing to surface", () => {
+test("buildDailyBrief omits the ClearEdge Intelligence coverage section when there is nothing to surface", () => {
   const analyzedThreads = [
     {
       relationship: { relationship: "customer", subtype: "core_customer" },
@@ -563,7 +565,7 @@ test("buildDailyBrief omits the Notebook Coverage section when there is nothing 
     organization: "ClearEdge Solutions"
   });
 
-  assert.ok(!brief.includes("Notebook Coverage"));
-  assert.ok(!brief.includes("Add to Notebook"));
-  assert.ok(!brief.includes("Reconcile with Notebook"));
+  assert.ok(!brief.includes("ClearEdge Intelligence Coverage"));
+  assert.ok(!brief.includes("Add to Intelligence Library"));
+  assert.ok(!brief.includes("Reconcile with Intelligence"));
 });

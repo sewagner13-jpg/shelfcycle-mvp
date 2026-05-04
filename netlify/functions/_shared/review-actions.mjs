@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { saveReviewAction } from "./knowledge-store.mjs";
+import { collectExecutableActions } from "../../../src/lib/shelfcycle-submit.mjs";
 
 function isCoreBusinessThread(item = {}) {
   return (
@@ -117,8 +118,11 @@ function createActionRecord(item = {}) {
     externalParticipants: item.externalParticipants ?? [],
     summary: item.summary || "",
     availableActions: collectAvailableActions(item),
+    executableActions: collectExecutableActions(item),
     draftNote: item.analysis?.draftNote ?? null,
     writePlan: item.analysis?.writePlan || item.analysis?.write_plan || item.writePlan || null,
+    matches: item.analysis?.matches ?? {},
+    intelligenceContext: item.analysis?.intelligenceContext ?? item.analysis?.notebookContext ?? null,
     suggestedCreates: item.analysis?.suggestedCreates ?? [],
     followUpDraft: item.analysis?.followUpDraft ?? null,
     warnings: item.analysis?.warnings ?? [],

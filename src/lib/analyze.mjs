@@ -1,8 +1,8 @@
 import { buildAdvisory } from "./advisory.mjs";
 import { detectWorkflow } from "./classify.mjs";
+import { enrichWithClearEdgeIntelligence } from "./clearedge-intelligence.mjs";
 import { buildFollowUpDraft } from "./follow-up.mjs";
 import { matchEntity } from "./match.mjs";
-import { enrichWithNotebookContext } from "./notebook-intelligence.mjs";
 import { compactWhitespace, safeArray } from "./normalize.mjs";
 import { parseContactInput } from "./parse-contact.mjs";
 import { parseCustomerInput } from "./parse-customer.mjs";
@@ -17,7 +17,7 @@ function normalizeReferenceData(referenceData = {}) {
     customers: safeArray(referenceData.customers),
     contacts: safeArray(referenceData.contacts),
     locations: safeArray(referenceData.locations),
-    notebookIntelligence: safeArray(referenceData.notebookIntelligence)
+    clearedgeIntelligence: safeArray(referenceData.clearedgeIntelligence ?? referenceData.notebookIntelligence)
   };
 }
 
@@ -183,7 +183,7 @@ export function analyzeInput({ text = "", workflow = "auto", referenceData = {} 
       : detectWorkflow(text, {
           knownChemicalTerms: [
             ...refs.products.flatMap((product) => [product.code, product.name, product.family, ...(product.synonyms ?? [])]),
-            ...refs.notebookIntelligence.flatMap((entry) => [entry.entity, ...(entry.aliases ?? []), ...(entry.supplierNames ?? [])])
+            ...refs.clearedgeIntelligence.flatMap((entry) => [entry.entity, ...(entry.aliases ?? []), ...(entry.supplierNames ?? [])])
           ]
         });
 
@@ -212,12 +212,12 @@ export function analyzeInput({ text = "", workflow = "auto", referenceData = {} 
   }
 
   const enriched = enrichWithMatches(result, refs, cleanedText);
-  const notebookEnriched = enrichWithNotebookContext(enriched, {
+  const intelligenceEnriched = enrichWithClearEdgeIntelligence(enriched, {
     text: cleanedText,
     referenceData: refs
   });
-  const advisory = buildAdvisory(notebookEnriched, cleanedText);
-  const followUpDraft = buildFollowUpDraft(notebookEnriched);
+  const advisory = buildAdvisory(intelligenceEnriched, cleanedText);
+  const followUpDraft = buildFollowUpDraft(intelligenceEnriched);
 
   return {
     workflow: classification.workflow,
@@ -228,11 +228,12 @@ export function analyzeInput({ text = "", workflow = "auto", referenceData = {} 
       customers: refs.customers.length,
       contacts: refs.contacts.length,
       locations: refs.locations.length,
-      notebookIntelligence: refs.notebookIntelligence.length
+      clearedgeIntelligence: refs.clearedgeIntelligence.length,
+      notebookIntelligence: refs.clearedgeIntelligence.length
     },
-    ...notebookEnriched,
+    ...intelligenceEnriched,
     ...advisory,
     followUpDraft,
-    writePlan: buildWritePlan(notebookEnriched, refs)
+    writePlan: buildWritePlan(intelligenceEnriched, refs)
   };
 }

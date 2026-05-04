@@ -784,7 +784,7 @@ export function analyzeThread(thread = {}, bundle = {}) {
     contacts: bundle.contacts ?? [],
     products: bundle.products ?? [],
     locations: bundle.locations ?? [],
-    notebookIntelligence: bundle.notebookIntelligence ?? []
+    clearedgeIntelligence: bundle.clearedgeIntelligence ?? bundle.notebookIntelligence ?? []
   };
   const analysis = analyzeInput({
     text,

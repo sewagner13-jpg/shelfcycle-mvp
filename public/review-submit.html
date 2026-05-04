@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local ShelfCycle Submit</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell review-shell">
+      <section class="hero">
+        <p class="eyebrow">Local ShelfCycle Submit</p>
+        <h1 id="submit-title">Load a review packet</h1>
+        <p id="submit-lede" class="lede">
+          This page runs locally and only submits to ShelfCycle after you approve the exact action.
+        </p>
+      </section>
+
+      <section class="panel controls">
+        <div class="panel-header">
+          <h2>Review Packet</h2>
+          <div class="actions">
+            <button id="load-review" class="ghost">Load Review Packet</button>
+            <button id="open-session" class="ghost">Open ShelfCycle Session</button>
+            <button id="submit-note" class="primary">Approve And Create Note</button>
+          </div>
+        </div>
+        <label for="review-url">Review packet URL</label>
+        <input id="review-url" type="url" placeholder="https://clearedge-daily-brief.netlify.app/review-action.html?id=...&token=..." />
+        <pre id="submit-status" class="text-block"></pre>
+      </section>
+
+      <section class="workspace review-workspace">
+        <div class="panel output-panel">
+          <div class="result-section">
+            <h3>Action Summary</h3>
+            <pre id="action-summary" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Executable Actions</h3>
+            <pre id="executable-actions" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Write Plan</h3>
+            <pre id="submit-write-plan" class="text-block"></pre>
+          </div>
+        </div>
+
+        <div class="panel output-panel">
+          <div class="result-section">
+            <h3>Draft Note</h3>
+            <pre id="submit-draft-note" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Warnings</h3>
+            <pre id="submit-warnings" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Submission Result</h3>
+            <pre id="submit-result" class="text-block tall"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/review-submit.js"></script>
+  </body>
+</html>

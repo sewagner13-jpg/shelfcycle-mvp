@@ -18,18 +18,18 @@ const followUpDraftEl = document.querySelector("#follow-up-draft");
 const roleWorklistsEl = document.querySelector("#role-worklists");
 const automationIdeasEl = document.querySelector("#automation-ideas");
 const rawJsonEl = document.querySelector("#raw-json");
-const notebookStatusEl = document.querySelector("#notebook-status");
-const notebookSummaryEl = document.querySelector("#notebook-summary");
-const notebookBriefEl = document.querySelector("#notebook-brief");
+const intelligenceStatusEl = document.querySelector("#intelligence-status");
+const intelligenceSummaryEl = document.querySelector("#intelligence-summary");
+const intelligenceBriefEl = document.querySelector("#intelligence-brief");
 
 const LOCAL_STORAGE_KEY = "shelfcycle-mvp-reference-data";
-const PROJECT_NOTEBOOK_URL = "/data/clearedge-brain-notebook-intelligence.json";
+const PROJECT_INTELLIGENCE_URL = "/data/clearedge-intelligence.json";
 const EMPTY_REFERENCE_DATA = {
   products: [],
   customers: [],
   contacts: [],
   locations: [],
-  notebookIntelligence: []
+  clearedgeIntelligence: []
 };
 
 const state = {
@@ -40,7 +40,7 @@ function saveReferenceData() {
   window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state.referenceData));
 }
 
-function mergeNotebookEntries(existing = [], incoming = []) {
+function mergeIntelligenceEntries(existing = [], incoming = []) {
   const byEntity = new Map();
 
   for (const entry of [...existing, ...incoming]) {
@@ -62,13 +62,21 @@ function normalizeReferenceData(data = {}) {
     customers: data.customers ?? [],
     contacts: data.contacts ?? [],
     locations: data.locations ?? [],
-    notebookIntelligence: data.notebookIntelligence ?? []
+    clearedgeIntelligence: data.clearedgeIntelligence ?? data.notebookIntelligence ?? []
   };
 }
 
+const REFERENCE_LABELS = {
+  products: "Products",
+  customers: "Customers",
+  contacts: "Contacts",
+  locations: "Locations",
+  clearedgeIntelligence: "ClearEdge Intelligence"
+};
+
 function renderReferenceStatus() {
   const counts = Object.entries(normalizeReferenceData(state.referenceData))
-    .map(([key, value]) => `<div class="stat-card"><strong>${value.length}</strong><span>${key}</span></div>`)
+    .map(([key, value]) => `<div class="stat-card"><strong>${value.length}</strong><span>${REFERENCE_LABELS[key] ?? key}</span></div>`)
     .join("");
 
   referenceStatus.innerHTML = counts;
@@ -132,8 +140,8 @@ function formatRoleWorklists(roleWorklists = {}) {
   return sections.join("\n\n");
 }
 
-const NOTEBOOK_STATUS_LABELS = {
-  matched: "Matched against Notebook",
+const INTELLIGENCE_STATUS_LABELS = {
+  matched: "Matched against ClearEdge Intelligence",
   no_historical_context: "No historical context yet",
   missing_primary_entity: "Primary chemical entity unresolved"
 };
@@ -147,7 +155,7 @@ function escapeHtml(value = "") {
     .replace(/'/g, "&#39;");
 }
 
-function notebookEntityCard(entity) {
+function intelligenceEntityCard(entity) {
   if (!entity?.name) {
     return "";
   }
@@ -170,7 +178,11 @@ function notebookEntityCard(entity) {
   `;
 }
 
-function notebookMatchCard(matchedEntry) {
+function intelligenceMatchCardTitle(matchedEntry) {
+  return matchedEntry?.entity ?? "ClearEdge intelligence entry";
+}
+
+function intelligenceMatchCard(matchedEntry) {
   if (!matchedEntry) {
     return "";
   }
@@ -199,13 +211,13 @@ function notebookMatchCard(matchedEntry) {
 
   return `
     <div class="pill-card notebook-card">
-      <strong>${escapeHtml(matchedEntry.entity ?? "Notebook entry")}</strong>
+      <strong>${escapeHtml(intelligenceMatchCardTitle(matchedEntry))}</strong>
       ${meta}
     </div>
   `;
 }
 
-function notebookContradictionsCard(contradictions = []) {
+function intelligenceContradictionsCard(contradictions = []) {
   if (!contradictions.length) {
     return "";
   }
@@ -222,7 +234,7 @@ function notebookContradictionsCard(contradictions = []) {
   `;
 }
 
-function notebookLearningCard(learningPrompt) {
+function intelligenceLearningCard(learningPrompt) {
   if (!learningPrompt) {
     return "";
   }
@@ -235,25 +247,25 @@ function notebookLearningCard(learningPrompt) {
   `;
 }
 
-function renderNotebookContext(result) {
-  const context = result?.notebookContext ?? null;
+function renderIntelligenceContext(result) {
+  const context = result?.intelligenceContext ?? result?.notebookContext ?? null;
   const status = context?.status ?? "missing_primary_entity";
-  const label = NOTEBOOK_STATUS_LABELS[status] ?? status;
+  const label = INTELLIGENCE_STATUS_LABELS[status] ?? status;
 
-  notebookStatusEl.textContent = label;
-  notebookStatusEl.className = context && status === "matched" ? "chip active" : "chip muted";
+  intelligenceStatusEl.textContent = label;
+  intelligenceStatusEl.className = context && status === "matched" ? "chip active" : "chip muted";
 
   const cards = [
-    notebookEntityCard(context?.primaryChemicalEntity),
-    notebookMatchCard(context?.matchedEntry),
-    notebookContradictionsCard(context?.contradictions ?? []),
-    notebookLearningCard(result?.learningPrompt)
+    intelligenceEntityCard(context?.primaryChemicalEntity),
+    intelligenceMatchCard(context?.matchedEntry),
+    intelligenceContradictionsCard(context?.contradictions ?? []),
+    intelligenceLearningCard(result?.learningPrompt)
   ]
     .filter(Boolean)
     .join("");
 
-  notebookSummaryEl.innerHTML = cards;
-  notebookBriefEl.textContent = context?.brief?.trim() ? context.brief : "No notebook brief yet.";
+  intelligenceSummaryEl.innerHTML = cards;
+  intelligenceBriefEl.textContent = context?.brief?.trim() ? context.brief : "No intelligence brief yet.";
 }
 
 function formatFollowUpDraft(followUpDraft) {
@@ -286,7 +298,7 @@ async function analyze() {
   setOutput(signalsEl, (result.signals ?? []).join("\n"));
   setOutput(writePlanEl, JSON.stringify(result.writePlan, null, 2));
   setOutput(draftEl, formatDraft(result));
-  renderNotebookContext(result);
+  renderIntelligenceContext(result);
   setOutput(matchesEl, formatMatches(result.matches));
   setOutput(warningsEl, (result.warnings ?? []).join("\n"));
   setOutput(suggestedCreatesEl, JSON.stringify(result.suggestedCreates ?? [], null, 2));
@@ -320,10 +332,19 @@ async function importCsvFile(file) {
 async function importJsonFile(file) {
   const contents = JSON.parse(await file.text());
 
-  for (const key of ["products", "customers", "contacts", "locations", "notebookIntelligence"]) {
+  for (const key of ["products", "customers", "contacts", "locations"]) {
     if (Array.isArray(contents[key])) {
       state.referenceData[key] = [...(state.referenceData[key] ?? []), ...contents[key]];
     }
+  }
+
+  const intelligenceEntries = contents.clearedgeIntelligence ?? contents.notebookIntelligence ?? [];
+
+  if (Array.isArray(intelligenceEntries)) {
+    state.referenceData.clearedgeIntelligence = mergeIntelligenceEntries(
+      state.referenceData.clearedgeIntelligence,
+      intelligenceEntries
+    );
   }
 }
 
@@ -344,7 +365,7 @@ async function loadSampleData() {
   const response = await fetch("/data/examples/reference-data.json");
   const data = await response.json();
   state.referenceData = normalizeReferenceData(data);
-  await hydrateProjectNotebookIntelligence();
+  await hydrateProjectIntelligence();
   saveReferenceData();
   renderReferenceStatus();
 }
@@ -378,7 +399,7 @@ async function exportKnowledgeBundle() {
 
 async function clearReferenceData() {
   state.referenceData = { ...EMPTY_REFERENCE_DATA };
-  await hydrateProjectNotebookIntelligence();
+  await hydrateProjectIntelligence();
   saveReferenceData();
   renderReferenceStatus();
 }
@@ -401,24 +422,27 @@ function restoreReferenceData() {
   renderReferenceStatus();
 }
 
-async function hydrateProjectNotebookIntelligence() {
+async function hydrateProjectIntelligence() {
   try {
-    const response = await fetch(PROJECT_NOTEBOOK_URL);
+    const response = await fetch(PROJECT_INTELLIGENCE_URL);
 
     if (!response.ok) {
       return;
     }
 
     const payload = await response.json();
-    const merged = mergeNotebookEntries(state.referenceData.notebookIntelligence, payload.notebookIntelligence ?? []);
+    const merged = mergeIntelligenceEntries(
+      state.referenceData.clearedgeIntelligence,
+      payload.clearedgeIntelligence ?? payload.notebookIntelligence ?? []
+    );
 
-    if (merged.length === state.referenceData.notebookIntelligence.length) {
+    if (merged.length === state.referenceData.clearedgeIntelligence.length) {
       return;
     }
 
-    state.referenceData.notebookIntelligence = merged;
+    state.referenceData.clearedgeIntelligence = merged;
   } catch {
-    // Keep the app usable even when the local notebook file is missing.
+    // Keep the app usable even when the local intelligence file is missing.
   }
 }
 
@@ -440,7 +464,7 @@ clearReferenceButton.addEventListener("click", clearReferenceData);
 
 async function initialize() {
   restoreReferenceData();
-  await hydrateProjectNotebookIntelligence();
+  await hydrateProjectIntelligence();
   saveReferenceData();
   renderReferenceStatus();
 }

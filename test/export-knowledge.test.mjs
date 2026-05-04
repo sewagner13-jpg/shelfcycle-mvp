@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const projectRoot = "/Users/seanwagner/Documents/Playground/shelfcycle-mvp";
 
-test("export-knowledge auto-merges the project Notebook intelligence file", async (t) => {
+test("export-knowledge auto-merges the project ClearEdge intelligence file", async (t) => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "clearedge-export-"));
   const inputPath = path.join(tempDir, "reference-data.json");
   const outputPath = path.join(tempDir, "bundle.json");
@@ -50,6 +50,7 @@ test("export-knowledge auto-merges the project Notebook intelligence file", asyn
 
   const bundle = JSON.parse(await readFile(outputPath, "utf8"));
 
+  assert.ok(bundle.clearedgeIntelligence.length >= 12);
   assert.ok(bundle.notebookIntelligence.length >= 12);
-  assert.ok(bundle.lookups.notebookEntityAliases.includes("RUCOLAC B-321"));
+  assert.ok(bundle.lookups.clearedgeEntityAliases.includes("RUCOLAC B-321"));
 });

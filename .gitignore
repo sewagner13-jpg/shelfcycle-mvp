@@ -10,6 +10,8 @@ pnpm-debug.log*
 # Local tooling state
 .claude/
 .netlify/
+.local/
+.tooling/
 
 # Environment and secrets
 .env

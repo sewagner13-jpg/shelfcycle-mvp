@@ -104,9 +104,9 @@ test("analyzeInput turns an email thread into a note and follow-up draft", async
   assert.equal(result.followUpDraft.to, "cquinn@suncoatings.example");
 });
 
-test("analyzeInput enriches drafts with Notebook intelligence and flags contradictions", async () => {
+test("analyzeInput enriches drafts with ClearEdge Intelligence and flags contradictions", async () => {
   const referenceData = await loadExampleData();
-  referenceData.notebookIntelligence = [
+  referenceData.clearedgeIntelligence = [
     {
       entity: "ACCESS Organosilane G301",
       aliases: ["G301", "VTMO"],
@@ -132,15 +132,15 @@ test("analyzeInput enriches drafts with Notebook intelligence and flags contradi
     `
   });
 
-  assert.equal(result.notebookContext.status, "matched");
-  assert.ok(result.notebookContext.brief.includes("### 🧠 NotebookLM Intelligence Brief"));
+  assert.equal(result.intelligenceContext.status, "matched");
+  assert.ok(result.intelligenceContext.brief.includes("### ClearEdge Intelligence Brief"));
   assert.ok(result.warnings.some((item) => item.includes("CAS mismatch")));
-  assert.ok(result.warnings.some((item) => item.includes("Price differs from Notebook benchmark")));
+  assert.ok(result.warnings.some((item) => item.includes("Price differs from ClearEdge benchmark")));
 });
 
-test("analyzeInput emits a learning prompt when a chemical has no Notebook history", async () => {
+test("analyzeInput emits a learning prompt when a chemical has no ClearEdge Intelligence history", async () => {
   const referenceData = await loadExampleData();
-  referenceData.notebookIntelligence = [];
+  referenceData.clearedgeIntelligence = [];
 
   const result = analyzeInput({
     referenceData,
@@ -152,14 +152,14 @@ test("analyzeInput emits a learning prompt when a chemical has no Notebook histo
     `
   });
 
-  assert.equal(result.notebookContext.status, "no_historical_context");
+  assert.equal(result.intelligenceContext.status, "no_historical_context");
   assert.ok(result.learningPrompt.includes("ClearEdge New Resin 42"));
-  assert.ok(result.warnings.includes("No Historical Context Found in Notebook."));
+  assert.ok(result.warnings.includes("No Historical Context Found in ClearEdge Intelligence."));
 });
 
-test("analyzeInput prepends Notebook intelligence to email-derived note drafts", async () => {
+test("analyzeInput prepends ClearEdge Intelligence to email-derived note drafts", async () => {
   const referenceData = await loadExampleData();
-  referenceData.notebookIntelligence = [
+  referenceData.clearedgeIntelligence = [
     {
       entity: "ACCESS Organosilane G301",
       aliases: ["G301"],
@@ -182,7 +182,7 @@ test("analyzeInput prepends Notebook intelligence to email-derived note drafts",
   });
 
   assert.equal(result.workflow, "email_thread");
-  assert.equal(result.notebookContext.status, "matched");
-  assert.ok(result.draftNote.summary.startsWith("### 🧠 NotebookLM Intelligence Brief"));
+  assert.equal(result.intelligenceContext.status, "matched");
+  assert.ok(result.draftNote.summary.startsWith("### ClearEdge Intelligence Brief"));
   assert.ok(result.draftNote.summary.includes("Commercial Benchmark: $2.45/lb"));
 });

@@ -7,6 +7,9 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
+    "netlify:cli": "node scripts/netlify-cli.mjs",
+    "netlify:login": "node scripts/netlify-cli.mjs login",
+    "deploy:netlify:prod": "node scripts/netlify-cli.mjs deploy --prod",
     "export-knowledge": "node apps/local-sync/export-knowledge.mjs",
     "get-refresh-token": "node apps/local-sync/get-refresh-token.mjs",
     "make-hosted-settings": "node apps/local-sync/make-hosted-settings.mjs",

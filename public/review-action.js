@@ -15,6 +15,7 @@ const suggestedCreatesEl = document.querySelector("#suggested-creates");
 const documentsEl = document.querySelector("#documents");
 const rawJsonEl = document.querySelector("#raw-json");
 const copyJsonButton = document.querySelector("#copy-json");
+const openLocalSubmitEl = document.querySelector("#open-local-submit");
 
 let currentAction = null;
 
@@ -117,6 +118,7 @@ function renderAction(action = {}) {
   setOutput(suggestedCreatesEl, JSON.stringify(action.suggestedCreates ?? [], null, 2));
   setOutput(documentsEl, formatDocuments(action.workspaceArtifacts ?? {}));
   setOutput(rawJsonEl, JSON.stringify(action, null, 2));
+  openLocalSubmitEl.href = `http://localhost:4318/review-submit.html?reviewUrl=${encodeURIComponent(window.location.href)}`;
 }
 
 async function loadReviewAction() {

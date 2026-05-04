@@ -36,7 +36,18 @@ What it does not do yet:
 - Log into ShelfCycle on its own
 - Submit changes back into ShelfCycle automatically
 - Parse binary PDFs directly
-- Deploy the hosted brief service for you automatically
+- Deploy the hosted brief service for you automatically without either:
+  - a working local Netlify CLI auth token, or
+  - Git-connected auto deploys on the Netlify site
+
+What it can now do locally:
+- open a review packet in a local approval screen
+- open a dedicated ShelfCycle browser session for login/bootstrap
+- submit an approved `New Note` into ShelfCycle through local browser automation
+
+Important safety rule:
+- hosted review packets remain read-only
+- actual ShelfCycle write-back only runs from the local app after explicit approval
 
 ## Strategy Docs
 
@@ -54,6 +65,51 @@ Then open:
 ```text
 http://localhost:4318
 ```
+
+Local approval page:
+
+```text
+http://localhost:4318/review-submit.html
+```
+
+## Local Netlify CLI
+
+This repo now includes a project-local Netlify CLI wrapper so this machine does not depend on a globally installed `npm` or `netlify` binary.
+
+First run:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs --version
+```
+
+That command bootstraps a local npm CLI under `.tooling/` and installs `netlify-cli` there.
+
+Helpful commands:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs login
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs status
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs deploy --prod
+```
+
+Equivalent package scripts:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs --version
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs deploy --prod
+```
+
+For non-interactive deploys, set `NETLIFY_AUTH_TOKEN` in the shell environment before running deploy commands.
+
+If the Netlify site is connected to GitHub for continuous deployment, pushing to the production branch should be the preferred deploy path. Netlify’s docs describe:
+- local or global CLI installation with npm
+- token-based CLI authentication
+- Git-connected deploys that publish on `git push`
+
+Sources:
+- [Get started with Netlify CLI](https://docs.netlify.com/api-and-cli-guides/cli-guides/get-started-with-cli/)
+- [Create deploys](https://docs.netlify.com/site-deploys/create-deploys/)
+- [Repository permissions and linking](https://docs.netlify.com/git/repo-permissions-linking/)
 
 ## Inputs
 
@@ -82,29 +138,32 @@ It contains:
 - contacts
 - products
 - locations
-- optional Notebook intelligence entries
+- optional ClearEdge intelligence entries
 - internal users/domains
 - supplier overrides
-- lookup maps for domains, emails, supplier names, product aliases, and Notebook entity aliases
+- lookup maps for domains, emails, supplier names, product aliases, and ClearEdge intelligence aliases
 
-Notebook intelligence schema example:
+ClearEdge intelligence schema example:
 - `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/examples/notebook-intelligence.json`
-- Current project Notebook export:
+- Native project intelligence file:
+  - `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/clearedge-intelligence.json`
+- Legacy Notebook export kept for compatibility:
   - `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/clearedge-brain-notebook-intelligence.json`
 
-When `notebookIntelligence` is present, the analyzer will:
+When `clearedgeIntelligence` is present, the analyzer will:
 - identify a primary chemical entity before historical enrichment
-- match against Notebook-style historical notes and master specs
-- prepend a `NotebookLM Intelligence Brief` to call and email drafts when context is found
+- match against ClearEdge historical notes and master specs
+- prepend a `ClearEdge Intelligence Brief` to call and email drafts when context is found
 - flag contradictions such as CAS, purity, flash point, or price deltas
-- emit a learning prompt when a chemical has no Notebook history yet
-- surface matched Notebook price, logistics, or compliance context inside the daily email brief
+- emit a learning prompt when a chemical has no ClearEdge intelligence history yet
+- surface matched pricing, logistics, or compliance context inside the daily email brief
+- accept legacy `notebookIntelligence` payloads for backward compatibility
 
 You can create it in two ways:
 
 1. In the local web app:
    - load ShelfCycle exports
-   - the app auto-loads `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/clearedge-brain-notebook-intelligence.json` when present
+   - the app auto-loads `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/clearedge-intelligence.json` when present
    - click `Export Knowledge Bundle`
 
 2. From the command line:
@@ -118,7 +177,7 @@ node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/local-sync/expor
   --overrides /Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/examples/knowledge-overrides.json
 ```
 
-If `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/clearedge-brain-notebook-intelligence.json` exists, `export-knowledge.mjs` automatically merges it into the bundle so hosted daily briefs and local note drafts stay Notebook-aware by default.
+If `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/clearedge-intelligence.json` exists, `export-knowledge.mjs` automatically merges it into the bundle so hosted daily briefs and local note drafts stay intelligence-aware by default. If only the legacy notebook export exists, the CLI will fall back to that file automatically.
 
 Sample overrides file:
 - `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/examples/knowledge-overrides.json`
@@ -138,7 +197,7 @@ Request:
     "customers": [],
     "contacts": [],
     "locations": [],
-    "notebookIntelligence": []
+    "clearedgeIntelligence": []
   }
 }
 ```
@@ -166,7 +225,7 @@ Request:
     "customers": [],
     "contacts": [],
     "locations": [],
-    "notebookIntelligence": []
+    "clearedgeIntelligence": []
   },
   "internalDomains": ["clear-edge.net"],
   "internalUsers": [],

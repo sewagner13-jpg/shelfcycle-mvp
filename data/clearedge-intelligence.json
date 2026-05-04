@@ -1,0 +1,335 @@
+{
+  "clearedgeIntelligence": [
+    {
+      "entity": "RUCOLAC B-321",
+      "aliases": [
+        "BYK-345",
+        "TEGO Wet 270",
+        "EFKA 3580"
+      ],
+      "supplier": "ClearEdge",
+      "supplierNames": [
+        "Rudolf"
+      ],
+      "customerNames": [],
+      "lastKnownGoodPrice": "$12.86/lb (SO 030)",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "100% solids",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Effective date 5/1/26 per standard price list."
+      ],
+      "logisticsNuances": [
+        "FOB Rock Hill, SC"
+      ],
+      "commercialBenchmarks": [
+        "$13.13/lb for SO 120 packaging."
+      ],
+      "complianceNotes": []
+    },
+    {
+      "entity": "RUCOLAC B-547",
+      "aliases": [
+        "BYK-1786",
+        "BYK-021",
+        "TEGO Airex 902W",
+        "Antarol L 837"
+      ],
+      "supplier": "ClearEdge",
+      "supplierNames": [
+        "Rudolf"
+      ],
+      "customerNames": [],
+      "lastKnownGoodPrice": "$4.97/lb (C 1000)",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "20% solids",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "High-performance silicone-based defoamer offset."
+      ],
+      "logisticsNuances": [
+        "FOB Rock Hill, SC"
+      ],
+      "commercialBenchmarks": [
+        "$5.07/lb for PO 120 container."
+      ],
+      "complianceNotes": [
+        "12 month shelf life."
+      ]
+    },
+    {
+      "entity": "Chemcure 206",
+      "aliases": [
+        "Adamine EC-256",
+        "Lapox AH-373",
+        "Ancamine 1769"
+      ],
+      "supplier": "Cargill",
+      "supplierNames": [],
+      "customerNames": [
+        "EMCO"
+      ],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Cargill does not want to produce."
+      ],
+      "logisticsNuances": [
+        "FOB"
+      ],
+      "commercialBenchmarks": [
+        "Target Selling Price: 5.00-5.50/lb."
+      ],
+      "complianceNotes": []
+    },
+    {
+      "entity": "Chemcure 115",
+      "aliases": [
+        "Adamine EC-415",
+        "Lapox AH-711",
+        "Ancamide 220"
+      ],
+      "supplier": "Cargill",
+      "supplierNames": [],
+      "customerNames": [
+        "EMCO"
+      ],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Cargill struggling to get amines."
+      ],
+      "logisticsNuances": [
+        "FOB"
+      ],
+      "commercialBenchmarks": [
+        "Target Selling Price: 2.50-3.00/lb."
+      ],
+      "complianceNotes": []
+    },
+    {
+      "entity": "RPM Wood Finishes Group, INC",
+      "aliases": [],
+      "supplier": "",
+      "supplierNames": [],
+      "customerNames": [
+        "RPM Wood Finishes Group, INC"
+      ],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Significant consumer of ACEMATT OK 412 (187,125 total 2018)."
+      ],
+      "logisticsNuances": [],
+      "commercialBenchmarks": [
+        "Account total: 221,320."
+      ],
+      "complianceNotes": []
+    },
+    {
+      "entity": "SIEGWERK",
+      "aliases": [],
+      "supplier": "",
+      "supplierNames": [],
+      "customerNames": [
+        "SIEGWERK"
+      ],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "High matting agent consumption: ACEMATT HK 400 (10,814 YTD) and OK 412 (29,200 2018 total)."
+      ],
+      "logisticsNuances": [],
+      "commercialBenchmarks": [
+        "Account total: 55,886."
+      ],
+      "complianceNotes": []
+    },
+    {
+      "entity": "ClearEdge Freight Policy",
+      "aliases": [],
+      "supplier": "ClearEdge",
+      "supplierNames": [],
+      "customerNames": [],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "",
+        "flashPoint": ""
+      },
+      "historicalNotes": [],
+      "logisticsNuances": [
+        "Prices are FOB Rock Hill, SC unless FCL (Full Container Load) to Statesville, NC."
+      ],
+      "commercialBenchmarks": [],
+      "complianceNotes": []
+    },
+    {
+      "entity": "RUCOLAC B-212",
+      "aliases": [
+        "Disperbyk-190",
+        "Disperbyk-2012",
+        "Disperbyk-199",
+        "TEGO Dispers 757 W"
+      ],
+      "supplier": "ClearEdge",
+      "supplierNames": [
+        "Rudolf"
+      ],
+      "customerNames": [],
+      "lastKnownGoodPrice": "$5.34/lb (C 1000)",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "40% solids",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Aqueous dispersant for waterborne systems."
+      ],
+      "logisticsNuances": [
+        "Actual fill weight: 2094 lbs / 950 kg."
+      ],
+      "commercialBenchmarks": [
+        "$5.53/lb for HD 120 packaging."
+      ],
+      "complianceNotes": [
+        "12 month shelf life."
+      ]
+    },
+    {
+      "entity": "RUCOLAC B-243",
+      "aliases": [
+        "Anti-Terra U",
+        "Additol XL 255N",
+        "TEGO Dispers 700"
+      ],
+      "supplier": "ClearEdge",
+      "supplierNames": [
+        "Rudolf"
+      ],
+      "customerNames": [],
+      "lastKnownGoodPrice": "$4.87/lb (SO 120)",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "50% solids",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Works at system polarity 9.4; thixotropic effect is stronger at lower polarity."
+      ],
+      "logisticsNuances": [
+        "Actual fill weight: 231 lbs / 105 kg."
+      ],
+      "commercialBenchmarks": [
+        "Standard match for medium-polar solvent-borne systems."
+      ],
+      "complianceNotes": [
+        "High amine value may increase viscosity if added to epoxy resin directly."
+      ]
+    },
+    {
+      "entity": "ACCESS AC301",
+      "aliases": [
+        "KBM-5103",
+        "3-Acryloxypropyltrimethoxysilane"
+      ],
+      "supplier": "ClearEdge",
+      "supplierNames": [
+        "Access Rudolf Technologies"
+      ],
+      "customerNames": [],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "4369-14-6",
+        "purity": "Acryl Functional",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Silane offset for Shin-Etsu KBM-5103."
+      ],
+      "logisticsNuances": [
+        "Stocking drums, totes, pails across 6 US warehouse locations."
+      ],
+      "commercialBenchmarks": [],
+      "complianceNotes": []
+    },
+    {
+      "entity": "Chemcure 250F",
+      "aliases": [
+        "Adamine EC-324",
+        "Ancamine 2089M"
+      ],
+      "supplier": "Cargill",
+      "supplierNames": [],
+      "customerNames": [
+        "Advanced FRP",
+        "BAYVEX"
+      ],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Cargill has no replacement for TMD (Trimethylenediamine)."
+      ],
+      "logisticsNuances": [],
+      "commercialBenchmarks": [
+        "Target Selling Price: 3.75-4.50/lb."
+      ],
+      "complianceNotes": []
+    },
+    {
+      "entity": "RUCOLAC B-206",
+      "aliases": [
+        "Disperbyk-2155",
+        "Solsperse 39000",
+        "Solsperse 86000"
+      ],
+      "supplier": "ClearEdge",
+      "supplierNames": [
+        "Rudolf"
+      ],
+      "customerNames": [],
+      "lastKnownGoodPrice": "",
+      "masterSpecs": {
+        "casNumber": "",
+        "purity": "100% solids",
+        "flashPoint": ""
+      },
+      "historicalNotes": [
+        "Internal testing (2014) showed Solsperse 39000 caused spots in 2p-PUR-HS direct grind due to poor dissolution."
+      ],
+      "logisticsNuances": [
+        "Available in C 1000 and PO 120."
+      ],
+      "commercialBenchmarks": [
+        "Primary offset for polymeric dispersants in GI solvent-borne systems."
+      ],
+      "complianceNotes": [
+        "24 month shelf life."
+      ]
+    }
+  ]
+}

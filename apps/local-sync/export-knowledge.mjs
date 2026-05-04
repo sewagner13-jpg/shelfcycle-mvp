@@ -8,7 +8,8 @@ import { createKnowledgeBundle } from "../../src/lib/knowledge-bundle.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
-const DEFAULT_NOTEBOOK_PATH = path.join(PROJECT_ROOT, "data/clearedge-brain-notebook-intelligence.json");
+const DEFAULT_INTELLIGENCE_PATH = path.join(PROJECT_ROOT, "data/clearedge-intelligence.json");
+const LEGACY_NOTEBOOK_PATH = path.join(PROJECT_ROOT, "data/clearedge-brain-notebook-intelligence.json");
 
 function parseArgs(argv = []) {
   const args = {
@@ -61,7 +62,7 @@ async function loadReferenceData(inputPaths = []) {
     customers: [],
     contacts: [],
     locations: [],
-    notebookIntelligence: []
+    clearedgeIntelligence: []
   };
 
   for (const inputPath of inputPaths) {
@@ -72,10 +73,16 @@ async function loadReferenceData(inputPaths = []) {
     if (inputPath.endsWith(".json")) {
       const payload = await loadJson(inputPath);
 
-      for (const key of ["products", "customers", "contacts", "locations", "notebookIntelligence"]) {
+      for (const key of ["products", "customers", "contacts", "locations"]) {
         if (Array.isArray(payload[key])) {
           referenceData[key].push(...payload[key]);
         }
+      }
+
+      const intelligenceEntries = payload.clearedgeIntelligence ?? payload.notebookIntelligence;
+
+      if (Array.isArray(intelligenceEntries)) {
+        referenceData.clearedgeIntelligence.push(...intelligenceEntries);
       }
 
       continue;
@@ -100,13 +107,19 @@ async function main() {
     throw new Error("Usage: node apps/local-sync/export-knowledge.mjs --input file1 --input file2 --out output.json [--overrides overrides.json]");
   }
 
-  const projectNotebookInputs =
-    (await fileExists(DEFAULT_NOTEBOOK_PATH)) &&
-    !args.inputs.some((inputPath) => path.resolve(inputPath) === DEFAULT_NOTEBOOK_PATH)
-      ? [DEFAULT_NOTEBOOK_PATH]
+  const defaultIntelligencePath =
+    (await fileExists(DEFAULT_INTELLIGENCE_PATH))
+      ? DEFAULT_INTELLIGENCE_PATH
+      : (await fileExists(LEGACY_NOTEBOOK_PATH))
+        ? LEGACY_NOTEBOOK_PATH
+        : "";
+  const projectIntelligenceInputs =
+    defaultIntelligencePath &&
+    !args.inputs.some((inputPath) => path.resolve(inputPath) === defaultIntelligencePath)
+      ? [defaultIntelligencePath]
       : [];
 
-  const referenceData = await loadReferenceData([...args.inputs, ...projectNotebookInputs]);
+  const referenceData = await loadReferenceData([...args.inputs, ...projectIntelligenceInputs]);
   const overrides = args.overrides ? await loadJson(args.overrides) : {};
   const bundle = createKnowledgeBundle({
     referenceData,

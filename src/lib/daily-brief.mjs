@@ -147,14 +147,22 @@ function truncateInsight(text = "", maxLength = 92) {
   return `${normalized.slice(0, maxLength - 3).trim()}...`;
 }
 
-function notebookSuffix(item = {}) {
-  const notebookContext = item.analysis?.notebookContext;
-
-  if (notebookContext?.status !== "matched") {
+function gmailThreadUrl(item = {}) {
+  if (!item.threadId) {
     return "";
   }
 
-  const matchedEntry = notebookContext.matchedEntry ?? {};
+  return `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`;
+}
+
+function intelligenceSuffix(item = {}) {
+  const intelligenceContext = item.analysis?.intelligenceContext ?? item.analysis?.notebookContext;
+
+  if (intelligenceContext?.status !== "matched") {
+    return "";
+  }
+
+  const matchedEntry = intelligenceContext.matchedEntry ?? {};
   const points = [];
 
   if (matchedEntry.lastKnownGoodPrice) {
@@ -184,7 +192,7 @@ function notebookSuffix(item = {}) {
     return "";
   }
 
-  return ` | Notebook: ${points.map((point) => truncateInsight(point)).join(" / ")}`;
+  return ` | Intelligence: ${points.map((point) => truncateInsight(point)).join(" / ")}`;
 }
 
 function compactLine(item, { timeZone, locale }) {
@@ -196,10 +204,11 @@ function compactLine(item, { timeZone, locale }) {
   const keyPoint = item.analysis?.rawExtracts?.keyPoints?.[0] || item.analysis?.rawExtracts?.actionItems?.[0] || "";
   const docs = artifactSuffix(item);
   const silo = item.silo?.name ? ` | ${item.silo.name}` : "";
-  const notebook = notebookSuffix(item);
+  const intelligence = intelligenceSuffix(item);
+  const gmail = gmailThreadUrl(item) ? ` | Gmail: ${gmailThreadUrl(item)}` : "";
   const review = item.reviewUrl ? ` | Review: ${item.reviewUrl}` : "";
 
-  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${notebook}${nextStep ? ` | Next: ${nextStep}` : ""}${review}`;
+  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${review}`;
 }
 
 function sumRoleWorklists(items = [], role) {
@@ -220,7 +229,7 @@ function sumRoleWorklists(items = [], role) {
   return actions;
 }
 
-function gatherNotebookCoverage(items = []) {
+function gatherIntelligenceCoverage(items = []) {
   const learningPrompts = [];
   const contradictions = [];
   const seenPrompts = new Set();
@@ -228,7 +237,7 @@ function gatherNotebookCoverage(items = []) {
 
   for (const item of items) {
     const analysis = item.analysis ?? {};
-    const context = analysis.notebookContext ?? null;
+    const context = analysis.intelligenceContext ?? analysis.notebookContext ?? null;
     const prompt = analysis.learningPrompt;
     const status = context?.status;
 
@@ -312,9 +321,9 @@ export function buildDailyBrief({
   const salesActions = sumRoleWorklists(sorted, "sales");
   const procurementActions = sumRoleWorklists(sorted, "procurement");
   const shelfCycleActions = gatherShelfCycleActions(sorted);
-  const notebookCoverage = gatherNotebookCoverage(sorted);
-  const hasNotebookCoverage =
-    notebookCoverage.learningPrompts.length > 0 || notebookCoverage.contradictions.length > 0;
+  const intelligenceCoverage = gatherIntelligenceCoverage(sorted);
+  const hasIntelligenceCoverage =
+    intelligenceCoverage.learningPrompts.length > 0 || intelligenceCoverage.contradictions.length > 0;
   const dateLabel = new Intl.DateTimeFormat(locale, {
     weekday: "long",
     month: "long",
@@ -365,20 +374,20 @@ export function buildDailyBrief({
     ...(shelfCycleActions.length ? shelfCycleActions.slice(0, 12).map((item) => `- ${item}`) : ["- None"])
   ];
 
-  if (hasNotebookCoverage) {
-    sections.push("", `Notebook Coverage`);
+  if (hasIntelligenceCoverage) {
+    sections.push("", `ClearEdge Intelligence Coverage`);
 
-    if (notebookCoverage.learningPrompts.length) {
+    if (intelligenceCoverage.learningPrompts.length) {
       sections.push(
-        `Add to Notebook`,
-        ...notebookCoverage.learningPrompts.slice(0, 8).map((item) => `- ${item}`)
+        `Add to Intelligence Library`,
+        ...intelligenceCoverage.learningPrompts.slice(0, 8).map((item) => `- ${item}`)
       );
     }
 
-    if (notebookCoverage.contradictions.length) {
+    if (intelligenceCoverage.contradictions.length) {
       sections.push(
-        `Reconcile with Notebook`,
-        ...notebookCoverage.contradictions.slice(0, 8).map((item) => `- ${item}`)
+        `Reconcile with Intelligence`,
+        ...intelligenceCoverage.contradictions.slice(0, 8).map((item) => `- ${item}`)
       );
     }
   }
