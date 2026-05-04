@@ -155,14 +155,14 @@ export function parseEmailThread(text = "", referenceData = {}) {
   const subject = extractSubject(text);
   const participants = extractParticipants(text);
   const externalParticipants = participants.filter((participant) => !participant.internal);
-  const customerMentions = findMentions(text, referenceData.customers, ["name", "website", "email"], {
+  const customerMentions = findMentions(text, referenceData.customers, ["name", "website", "email", "phone"], {
     minScore: 0.62,
     limit: 3
   });
   const contactMentions = findMentions(
     text,
     referenceData.contacts,
-    ["name", "companyName", "email"],
+    ["name", "companyName", "email", "officePhone", "mobilePhone", "faxPhone"],
     {
       minScore: 0.56,
       limit: 6

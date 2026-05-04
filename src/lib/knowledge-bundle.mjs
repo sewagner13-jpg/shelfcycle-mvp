@@ -1,4 +1,4 @@
-import { dedupeObjects, extractDomain, safeArray, uniqueStrings, compactWhitespace } from "./normalize.mjs";
+import { dedupeObjects, extractDomain, safeArray, uniqueStrings, compactWhitespace, normalizePhone } from "./normalize.mjs";
 import { deriveClearEdgeEntityAliases, normalizeClearEdgeIntelligence } from "./clearedge-intelligence.mjs";
 
 function normalizeEntity(entity = {}) {
@@ -38,6 +38,20 @@ function deriveContactDomains(contacts = [], predicate = () => true) {
       .map((contact) => extractDomain(contact.email))
       .filter(Boolean)
   );
+}
+
+function deriveContactPhones(contacts = [], predicate = () => true) {
+  return uniqueStrings(
+    contacts
+      .filter(predicate)
+      .flatMap((contact) => [contact.officePhone, contact.mobilePhone, contact.faxPhone])
+      .map((phone) => normalizePhone(phone))
+      .filter(Boolean)
+  );
+}
+
+function deriveCustomerPhones(customers = []) {
+  return uniqueStrings(customers.map((customer) => normalizePhone(customer.phone)).filter(Boolean));
 }
 
 function deriveUnambiguousRelationshipDomains(contacts = [], type = "") {
@@ -104,6 +118,15 @@ function deriveVendorDomains(opsVendors = []) {
   return uniqueStrings(opsVendors.map((vendor) => extractDomain(vendor.domain || vendor.email)).filter(Boolean));
 }
 
+function deriveInternalPhones(internalUsers = []) {
+  return uniqueStrings(
+    internalUsers
+      .flatMap((user) => [user.phone, user.mobilePhone, user.officePhone])
+      .map((value) => normalizePhone(value))
+      .filter(Boolean)
+  );
+}
+
 function buildCustomerMap(customers = []) {
   const map = {};
 
@@ -136,7 +159,11 @@ function buildLookupMaps({ customers, contacts, products, suppliers, opsVendors,
   const contactEmails = deriveContactEmails(contacts);
   const customerContactEmails = deriveContactEmails(contacts, (contact) => isRelationshipType(contact, "customer"));
   const supplierContactEmails = deriveContactEmails(contacts, (contact) => isRelationshipType(contact, "supplier"));
+  const customerContactPhones = deriveContactPhones(contacts, (contact) => isRelationshipType(contact, "customer"));
+  const supplierContactPhones = deriveContactPhones(contacts, (contact) => isRelationshipType(contact, "supplier"));
+  const customerPhones = deriveCustomerPhones(customers);
   const internalEmails = uniqueStrings(internalUsers.map((user) => user.email).filter(Boolean));
+  const internalPhones = deriveInternalPhones(internalUsers);
   const productAliases = deriveProductAliases(products);
   const opsVendorNames = deriveVendorNames(opsVendors);
   const opsVendorDomains = deriveVendorDomains(opsVendors);
@@ -149,7 +176,11 @@ function buildLookupMaps({ customers, contacts, products, suppliers, opsVendors,
     contactEmails,
     customerContactEmails,
     supplierContactEmails,
+    customerContactPhones,
+    supplierContactPhones,
+    customerPhones,
     internalEmails,
+    internalPhones,
     internalDomains: uniqueStrings(internalDomains),
     productAliases,
     clearedgeEntityAliases,

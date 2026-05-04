@@ -181,14 +181,23 @@ function mapLocation(record) {
 }
 
 export function inferEntityType(fileName = "", headers = []) {
-  const haystack = `${fileName} ${headers.join(" ")}`.toLowerCase();
+  const normalizedFileName = normalizeText(fileName);
+  const haystack = `${normalizedFileName} ${headers.join(" ")}`.toLowerCase();
 
-  if (haystack.includes("contact")) {
+  if (/\bcustomers?\b/.test(normalizedFileName)) {
+    return "customers";
+  }
+
+  if (/\bcontacts?\b/.test(normalizedFileName)) {
     return "contacts";
   }
 
   if (haystack.includes("customer")) {
     return "customers";
+  }
+
+  if (haystack.includes("contact")) {
+    return "contacts";
   }
 
   if (haystack.includes("address") || haystack.includes("location")) {

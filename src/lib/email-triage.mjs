@@ -1,5 +1,5 @@
 import { analyzeInput } from "./analyze.mjs";
-import { compactWhitespace, extractDomain, uniqueStrings } from "./normalize.mjs";
+import { compactWhitespace, extractDomain, uniqueStrings, normalizePhone } from "./normalize.mjs";
 
 const ADDRESS_RE = /"?([^"<]*)"?\s*<([^>]+)>|([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi;
 
@@ -148,6 +148,37 @@ function parseAddressHeader(value = "") {
     });
   }
 
+  if (addresses.length) {
+    return addresses;
+  }
+
+  for (const token of compactWhitespace(value).split(/\s*,\s*/).filter(Boolean)) {
+    const cleaned = compactWhitespace(token.replace(/^"|"$/g, ""));
+
+    if (!cleaned) {
+      continue;
+    }
+
+    if (/^\+?[\d().\s-]{7,}$/.test(cleaned)) {
+      addresses.push({
+        name: "",
+        email: cleaned,
+        domain: ""
+      });
+      continue;
+    }
+
+    const handleMatch = cleaned.match(/^(.+?)\s*<([^>]+)>$/);
+
+    if (handleMatch && /^\+?[\d().\s-]{7,}$/.test(compactWhitespace(handleMatch[2]))) {
+      addresses.push({
+        name: compactWhitespace(handleMatch[1]),
+        email: compactWhitespace(handleMatch[2]),
+        domain: ""
+      });
+    }
+  }
+
   return addresses;
 }
 
@@ -195,11 +226,17 @@ function messageToEvent(message = {}) {
 
 function isInternalEmail(email = "", bundle = {}) {
   const domain = extractDomain(email);
+  const phone = normalizePhone(email);
 
   return (
     bundle.internalDomains?.includes(domain) ||
-    bundle.lookups?.internalEmails?.includes(email.toLowerCase())
+    bundle.lookups?.internalEmails?.includes(email.toLowerCase()) ||
+    bundle.lookups?.internalPhones?.includes(phone)
   );
+}
+
+function addressPhone(address = {}) {
+  return normalizePhone(address.phone || address.email || address.value || "");
 }
 
 function latestExternalInboundEvent(events = [], bundle = {}) {
@@ -228,6 +265,7 @@ function matchEntryHasRelationship(entry = {}, type = "") {
 function addressMatchesContactRole(address = {}, matches = [], type = "") {
   const email = address.email?.toLowerCase();
   const name = compactWhitespace(address.name).toLowerCase();
+  const phone = addressPhone(address);
 
   return matches.some((entry) => {
     if (!matchEntryHasRelationship(entry, type)) {
@@ -236,28 +274,39 @@ function addressMatchesContactRole(address = {}, matches = [], type = "") {
 
     const candidateEmail = entry?.candidate?.email?.toLowerCase();
     const candidateName = compactWhitespace(entry?.candidate?.name).toLowerCase();
+    const candidatePhones = [
+      entry?.candidate?.officePhone,
+      entry?.candidate?.mobilePhone,
+      entry?.candidate?.faxPhone
+    ].map((value) => normalizePhone(value)).filter(Boolean);
 
-    return (email && candidateEmail === email) || (name && candidateName === name);
+    return (email && candidateEmail === email) || (name && candidateName === name) || (phone && candidatePhones.includes(phone));
   });
 }
 
 function matchesCustomer(address = {}, bundle = {}, analysis = {}) {
-  if (!address.email) {
+  if (!address.email && !addressPhone(address)) {
     return false;
   }
 
-  const email = address.email.toLowerCase();
+  const email = address.email?.toLowerCase?.() ?? "";
   const domain = extractDomain(email);
+  const phone = addressPhone(address);
   const matchedByAnalysis = addressMatchesContactRole(address, analysis.matches?.contacts ?? [], "customer");
   const hasTypedContactLookups = Boolean(
-    bundle.lookups?.customerContactEmails?.length || bundle.lookups?.supplierContactEmails?.length
+    bundle.lookups?.customerContactEmails?.length ||
+    bundle.lookups?.supplierContactEmails?.length ||
+    bundle.lookups?.customerContactPhones?.length ||
+    bundle.lookups?.supplierContactPhones?.length
   );
   const matchedContact =
     bundle.lookups?.customerContactEmails?.includes(email) ||
+    bundle.lookups?.customerContactPhones?.includes(phone) ||
     (!hasTypedContactLookups && bundle.lookups?.contactEmails?.includes(email));
   const matchedDomain = bundle.lookups?.customerDomains?.includes(domain);
+  const matchedCustomerPhone = bundle.lookups?.customerPhones?.includes(phone);
 
-  return matchedByAnalysis || matchedContact || matchedDomain;
+  return matchedByAnalysis || matchedContact || matchedDomain || matchedCustomerPhone;
 }
 
 function matchesOpsVendor(address = {}, bundle = {}, joinedText = "") {
@@ -277,22 +326,24 @@ function matchesOpsVendor(address = {}, bundle = {}, joinedText = "") {
 }
 
 function matchesSupplier(address = {}, bundle = {}, joinedText = "", analysis = {}) {
-  if (!address.email) {
+  if (!address.email && !addressPhone(address)) {
     return false;
   }
 
   const domain = extractDomain(address.email);
   const companyText = `${address.name} ${address.email} ${joinedText}`;
-  const email = address.email.toLowerCase();
+  const email = address.email?.toLowerCase?.() ?? "";
+  const phone = addressPhone(address);
   const nameMatch = (bundle.lookups?.supplierNames ?? []).some(
     (supplierName) => supplierName && companyText.toLowerCase().includes(supplierName.toLowerCase())
   );
   const domainMatch = bundle.lookups?.supplierDomains?.includes(domain);
   const contactMatch = bundle.lookups?.supplierContactEmails?.includes(email);
+  const phoneMatch = bundle.lookups?.supplierContactPhones?.includes(phone);
   const analysisContactMatch = addressMatchesContactRole(address, analysis.matches?.contacts ?? [], "supplier");
   const patternMatch = SUPPLIER_PATTERNS.some((pattern) => pattern.test(companyText));
 
-  return domainMatch || contactMatch || analysisContactMatch || nameMatch || patternMatch;
+  return domainMatch || contactMatch || phoneMatch || analysisContactMatch || nameMatch || patternMatch;
 }
 
 function looksLikeSolicitation(events = [], bundle = {}) {
@@ -806,6 +857,7 @@ export function analyzeThread(thread = {}, bundle = {}) {
   ).filter((address) => !isInternalEmail(address.email, bundle));
 
   return {
+    source: thread.source ?? "gmail",
     threadId: thread.id,
     events,
     relationship,
@@ -820,6 +872,7 @@ export function analyzeThread(thread = {}, bundle = {}) {
       driveScopeAvailable: true,
       driveError: ""
     },
+    sourceRecords: thread.messageRecords ?? [],
     headline,
     subject: headline?.subject || analysis.fields?.subject || "",
     lastTimestamp: headline?.timestamp || 0,

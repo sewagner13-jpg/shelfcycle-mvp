@@ -1,0 +1,37 @@
+{
+  "enabled": true,
+  "lookbackHours": 24,
+  "maxThreads": 120,
+  "useSnapshot": true,
+  "businessWhitelist": [],
+  "blacklist": [],
+  "businessKeywords": [
+    "quote",
+    "pricing",
+    "price",
+    "sample",
+    "sds",
+    "tds",
+    "coa",
+    "shipment",
+    "invoice",
+    "freight",
+    "container",
+    "order",
+    "benzyl alcohol",
+    "resin",
+    "silane"
+  ],
+  "urgentKeywords": [
+    "urgent",
+    "asap",
+    "today",
+    "late",
+    "delay",
+    "problem",
+    "issue",
+    "missing"
+  ],
+  "storeRawMessages": false,
+  "storagePath": "/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/messages-memory-store.json"
+}

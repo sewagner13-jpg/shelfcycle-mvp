@@ -77,3 +77,15 @@ ARG301-D,ACCESS Organosilane G301,441,POUND,0,10,10,0,0,$2.45,0,UN1993,III – L
   assert.equal(result.records[0].hazardClass, "3 - Flammable Liquids");
   assert.equal(result.records[0].packagesPerPallet, "4");
 });
+
+test("importCsv treats customer exports with contact-information columns as customers", () => {
+  const result = importCsv({
+    fileName: "customers-2026-05-03.csv",
+    csvText: `Name,Email,Contact Information,Default Sales Person,Default CSR,Amount Due,Credit Limit,Status,Primary Billing Address
+Actega North America,,856-735-2017 https://www.actega.com/us/en/,,,$0.00,"$100,000.00",ACTIVE,"1450 Taylors Lane, Cinnaminson, NJ, 08077, US"`
+  });
+
+  assert.equal(result.entityType, "customers");
+  assert.equal(result.records[0].name, "Actega North America");
+  assert.equal(result.records[0].phone, "856-735-2017 https://www.actega.com/us/en/");
+});

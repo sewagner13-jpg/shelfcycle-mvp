@@ -148,11 +148,31 @@ function truncateInsight(text = "", maxLength = 92) {
 }
 
 function gmailThreadUrl(item = {}) {
+  if (item.source && item.source !== "gmail") {
+    return "";
+  }
+
   if (!item.threadId) {
     return "";
   }
 
   return `https://mail.google.com/mail/u/0/#inbox/${item.threadId}`;
+}
+
+function messagesThreadUrl(item = {}) {
+  if (item.source !== "messages") {
+    return "";
+  }
+
+  const participant = firstExternalParticipant(item);
+  const raw = participant?.email || "";
+  const digits = raw.replace(/[^\d+]/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  return `sms:${digits}`;
 }
 
 function intelligenceSuffix(item = {}) {
@@ -206,9 +226,10 @@ function compactLine(item, { timeZone, locale }) {
   const silo = item.silo?.name ? ` | ${item.silo.name}` : "";
   const intelligence = intelligenceSuffix(item);
   const gmail = gmailThreadUrl(item) ? ` | Gmail: ${gmailThreadUrl(item)}` : "";
+  const messages = messagesThreadUrl(item) ? ` | Messages: ${messagesThreadUrl(item)}` : "";
   const review = item.reviewUrl ? ` | Review: ${item.reviewUrl}` : "";
 
-  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${review}`;
+  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}`;
 }
 
 function sumRoleWorklists(items = [], role) {
@@ -295,9 +316,69 @@ function gatherShelfCycleActions(items = []) {
   return [...new Set(actions)];
 }
 
+function hasMessageMemoryContent(section = {}) {
+  return [
+    section.urgent_items,
+    section.business_threads,
+    section.unanswered_messages,
+    section.memory_candidates,
+    section.suggested_followups,
+    section.low_priority_summary
+  ].some((items) => Array.isArray(items) && items.length);
+}
+
+function formatMessageMemoryItem(item = {}) {
+  const parts = [
+    item.contact || "Unknown",
+    item.subject || item.summary || "",
+    item.relationship ? `[${item.relationship}]` : "",
+    item.silo ? `[${item.silo}]` : "",
+    item.summary || "",
+    item.next_step ? `Next: ${item.next_step}` : ""
+  ].filter(Boolean);
+
+  return `- ${parts.join(" | ")}`;
+}
+
+function appendMessageMemorySection(sections = [], messageMemory = null) {
+  if (!messageMemory || !hasMessageMemoryContent(messageMemory)) {
+    return;
+  }
+
+  sections.push("", messageMemory.section || "Message Memory");
+
+  const mappings = [
+    ["Urgent Items", messageMemory.urgent_items, formatMessageMemoryItem],
+    ["Business Threads", messageMemory.business_threads, formatMessageMemoryItem],
+    ["Unanswered Messages", messageMemory.unanswered_messages, formatMessageMemoryItem],
+    [
+      "Memory Candidates",
+      messageMemory.memory_candidates,
+      (item) => `- ${item.contact || "Unknown"} | ${item.memoryType || "memory"} | ${item.summary || ""}`
+    ],
+    [
+      "Suggested Follow-Ups",
+      messageMemory.suggested_followups,
+      (item) => `- ${item.summary || ""}`
+    ],
+    [
+      "Low Priority Summary",
+      messageMemory.low_priority_summary,
+      (item) => `- ${(item.contact ? `${item.contact} | ` : "")}${item.summary || ""}`
+    ]
+  ];
+
+  for (const [heading, items, formatter] of mappings) {
+    sections.push(heading);
+    sections.push(...(items?.length ? items.map((item) => formatter(item)) : ["- None"]));
+  }
+}
+
 export function buildDailyBrief({
   analyzedThreads = [],
   organization = "ClearEdge Solutions",
+  title = "Daily ClearEdge Email Brief",
+  messageMemory = null,
   generatedAt = new Date().toISOString(),
   timeZone = "America/New_York",
   locale = "en-US"
@@ -333,7 +414,7 @@ export function buildDailyBrief({
   }).format(new Date(generatedAt));
 
   const sections = [
-    `Daily ClearEdge Email Brief`,
+    title,
     `Organization: ${organization}`,
     `Generated: ${dateLabel}`,
     "",
@@ -391,6 +472,8 @@ export function buildDailyBrief({
       );
     }
   }
+
+  appendMessageMemorySection(sections, messageMemory);
 
   return sections.join("\n");
 }

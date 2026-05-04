@@ -31,6 +31,7 @@ What it does:
   - determine `needs attention` vs `waiting on others`
   - produce a daily triage brief
   - optionally send the brief back by email
+- Includes a local Messages memory source so iMessage/SMS threads on this Mac can produce a separate `Message Memory` section in the daily brief
 
 What it does not do yet:
 - Log into ShelfCycle on its own
@@ -39,6 +40,7 @@ What it does not do yet:
 - Deploy the hosted brief service for you automatically without either:
   - a working local Netlify CLI auth token, or
   - Git-connected auto deploys on the Netlify site
+- Read Apple Messages unless Codex has macOS permission to access `~/Library/Messages`
 
 What it can now do locally:
 - open a review packet in a local approval screen
@@ -243,6 +245,44 @@ The hosted brief is designed to run as a scheduled command in a cloud environmen
 Entry point:
 - `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run.mjs`
 
+Local Gmail brief with Message Memory enabled:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run.mjs \
+  --bundle /path/to/clearedge-knowledge.json \
+  --settings /path/to/hosted-settings.json \
+  --messages-memory-config /Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/examples/messages-memory-config.json \
+  --hours 24
+```
+
+Shortcut flag for default local Messages settings:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run.mjs \
+  --bundle /path/to/clearedge-knowledge.json \
+  --include-messages \
+  --hours 24
+```
+
+Optional flags for local text-message ingestion:
+- `--settings /path/to/hosted-settings.json`
+- `--max-message-threads 120`
+- `--messages-db /Users/seanwagner/Library/Messages/chat.db`
+- `--messages-memory-config /path/to/messages-memory-config.json`
+
+Messages modules:
+- low-level read-only adapter: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/src/lib/messages-client.mjs`
+- memory summarizer: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/src/lib/messages-memory.mjs`
+- config loader/defaults: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/src/lib/messages-memory-config.mjs`
+- local summarized store: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/src/lib/messages-memory-store.mjs`
+- sample config: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/data/examples/messages-memory-config.json`
+
+Important local requirement for Messages:
+- Codex must have permission to read `~/Library/Messages`
+- if the run says access was denied, grant Full Disk Access or Files access for the Messages folder and retry
+- the app only copies `chat.db`, `chat.db-wal`, and `chat.db-shm` into a temporary folder before querying
+- the app never writes to Apple Messages and stores only summarized memory metadata in its own store by default
+
 Deployed Netlify site:
 - `https://clearedge-daily-brief.netlify.app`
 
@@ -264,6 +304,7 @@ Run a dry-run brief:
 ```bash
 node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run.mjs \
   --bundle /path/to/clearedge-knowledge.json \
+  --settings /path/to/hosted-settings.json \
   --out /path/to/brief.txt
 ```
 

@@ -44,10 +44,10 @@ test("createKnowledgeBundle builds lookup maps from reference data", () => {
     referenceData: {
       customers: [{ name: "Sun Coatings", website: "https://suncoatings.example" }],
       contacts: [
-        { name: "Courtney Quinn", email: "cquinn@suncoatings.example", companyType: "Customer" },
+        { name: "Courtney Quinn", email: "cquinn@suncoatings.example", mobilePhone: "(813) 555-0111", companyType: "Customer" },
         { name: "Scott Waterman", email: "scott.waterman@ncs.co.za", companyName: "NCS Resins", companyType: "Supplier" },
         { name: "Accounting", email: "accounting@accessrudolftech.com", companyName: "ACCESS Rudolf", companyType: "Customer" },
-        { name: "COA", email: "coa@accessrudolftech.com", companyName: "ACCESS Rudolf Technologies", companyType: "Supplier" }
+        { name: "COA", email: "coa@accessrudolftech.com", officePhone: "704-555-0199", companyName: "ACCESS Rudolf Technologies", companyType: "Supplier" }
       ],
       products: [{ code: "G301", name: "ACCESS Organosilane G301", supplier: "ACCESS Rudolf Technologies" }],
       locations: [],
@@ -67,6 +67,8 @@ test("createKnowledgeBundle builds lookup maps from reference data", () => {
   assert.ok(bundle.lookups.contactEmails.includes("cquinn@suncoatings.example"));
   assert.ok(bundle.lookups.customerContactEmails.includes("cquinn@suncoatings.example"));
   assert.ok(bundle.lookups.supplierContactEmails.includes("scott.waterman@ncs.co.za"));
+  assert.ok(bundle.lookups.customerContactPhones.includes("8135550111"));
+  assert.ok(bundle.lookups.supplierContactPhones.includes("7045550199"));
   assert.ok(bundle.lookups.supplierDomains.includes("ncs.co.za"));
   assert.ok(bundle.lookups.supplierNames.includes("NCS Resins"));
   assert.ok(bundle.lookups.supplierNames.includes("ACCESS Rudolf Technologies"));
@@ -293,6 +295,40 @@ test("analyzeThread routes technical-document threads into the compliance silo",
 
   assert.equal(result.relationship.relationship, "customer");
   assert.equal(result.silo.name, "compliance");
+});
+
+test("analyzeThread classifies a text thread by matched contact phone", () => {
+  const bundle = createKnowledgeBundle({
+    referenceData: {
+      customers: [{ name: "MAK Chemicals" }],
+      contacts: [{ name: "Kunal Butala", mobilePhone: "732-983-6870", companyName: "MAK Chemicals", companyType: "Supplier" }],
+      products: [],
+      locations: []
+    },
+    internalUsers: [{ name: "Sean Wagner", email: "sean@clear-edge.net" }]
+  });
+  const thread = {
+    id: "messages-chat-1",
+    source: "messages",
+    messages: [
+      makeMessage({
+        id: "sms-1",
+        threadId: "messages-chat-1",
+        from: "+17329836870",
+        to: "Sean Wagner <sean@clear-edge.net>",
+        subject: "Text thread with +17329836870",
+        body: "Can you confirm benzyl alcohol availability for pickup Friday morning?",
+        snippet: "Can you confirm benzyl alcohol availability for pickup Friday morning?",
+        timestamp: Date.UTC(2026, 4, 4, 14, 0, 0)
+      })
+    ]
+  };
+
+  const result = analyzeThread(thread, bundle);
+
+  assert.equal(result.source, "messages");
+  assert.equal(result.relationship.relationship, "supplier");
+  assert.equal(result.state.state, "needs_attention");
 });
 
 test("buildDailyBrief groups analyzed threads into actionable sections", () => {
@@ -568,4 +604,43 @@ test("buildDailyBrief omits the ClearEdge Intelligence coverage section when the
   assert.ok(!brief.includes("ClearEdge Intelligence Coverage"));
   assert.ok(!brief.includes("Add to Intelligence Library"));
   assert.ok(!brief.includes("Reconcile with Intelligence"));
+});
+
+test("buildDailyBrief appends a Message Memory section when provided", () => {
+  const brief = buildDailyBrief({
+    organization: "ClearEdge Solutions",
+    title: "Daily ClearEdge Communications Brief",
+    analyzedThreads: [],
+    messageMemory: {
+      section: "Message Memory",
+      urgent_items: [
+        {
+          contact: "Kunal Butala",
+          subject: "Text thread with +17329836870",
+          relationship: "supplier",
+          silo: "commercial",
+          summary: "Requested pickup confirmation for benzyl alcohol.",
+          next_step: "Reply with Friday pickup timing."
+        }
+      ],
+      business_threads: [],
+      unanswered_messages: [],
+      memory_candidates: [
+        {
+          contact: "Kunal Butala",
+          memoryType: "purchase_signal",
+          summary: "Kunal Butala signaled an active order, shipment, or pickup need."
+        }
+      ],
+      suggested_followups: [{ summary: "Reply with Friday pickup timing." }],
+      low_priority_summary: []
+    }
+  });
+
+  assert.ok(brief.includes("Daily ClearEdge Communications Brief"));
+  assert.ok(brief.includes("Message Memory"));
+  assert.ok(brief.includes("Urgent Items"));
+  assert.ok(brief.includes("Kunal Butala | Text thread with +17329836870"));
+  assert.ok(brief.includes("Memory Candidates"));
+  assert.ok(brief.includes("purchase_signal"));
 });

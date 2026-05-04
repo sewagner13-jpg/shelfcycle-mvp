@@ -4,6 +4,7 @@ import { buildDailyBrief } from "./daily-brief.mjs";
 import { analyzeThread } from "./email-triage.mjs";
 import { fetchRecentThreads, getProfile, sendEmail } from "./gmail-client.mjs";
 import { enrichThreadsWithWorkspaceArtifacts } from "./google-workspace-client.mjs";
+import { runMessagesMemorySource } from "./messages-memory.mjs";
 
 async function loadKnowledgeBundle(bundlePath) {
   if (!bundlePath) {
@@ -23,9 +24,12 @@ export async function runAutoBrief({
   bundlePath,
   gmailConfig = {},
   googleWorkspaceConfig = {},
+  messagesConfig = {},
   hours = 24,
   maxMessages = 200,
+  maxMessageThreads = 120,
   query = "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\"",
+  includeMessages = false,
   send = false,
   recipient,
   decorateAnalyzedThreads,
@@ -39,13 +43,13 @@ export async function runAutoBrief({
   }
 
   const profile = await getProfile({ config: gmailConfig });
-  const threads = await fetchRecentThreads({
+  const emailThreads = await fetchRecentThreads({
     hours,
     maxMessages,
     query,
     config: gmailConfig
   });
-  const enrichedThreads = await enrichThreadsWithWorkspaceArtifacts(threads, {
+  const enrichedThreads = await enrichThreadsWithWorkspaceArtifacts(emailThreads, {
     config: gmailConfig,
     ...googleWorkspaceConfig
   });
@@ -57,9 +61,23 @@ export async function runAutoBrief({
     analyzedThreads = await decorateAnalyzedThreads(analyzedThreads);
   }
 
+  const messageMemory = includeMessages
+    ? await runMessagesMemorySource({
+        bundle: resolvedBundle,
+        config: {
+          enabled: true,
+          lookbackHours: hours,
+          maxThreads: maxMessageThreads,
+          ...messagesConfig
+        }
+      })
+    : null;
+
   const brief = buildDailyBrief({
     analyzedThreads,
     organization: resolvedBundle.organization,
+    title: includeMessages ? "Daily ClearEdge Communications Brief" : "Daily ClearEdge Email Brief",
+    messageMemory,
     timeZone,
     locale
   });
