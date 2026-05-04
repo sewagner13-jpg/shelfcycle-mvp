@@ -639,6 +639,9 @@ test("buildDailyBrief appends a Message Memory section when provided", () => {
 
   assert.ok(brief.includes("Daily ClearEdge Communications Brief"));
   assert.ok(brief.includes("Message Memory"));
+  assert.ok(brief.includes("- Message business threads: 0"));
+  assert.ok(brief.includes("- Message follow-ups: 1"));
+  assert.ok(brief.indexOf("Message Memory") < brief.indexOf("Needs Attention"));
   assert.ok(brief.includes("Urgent Items"));
   assert.ok(brief.includes("Kunal Butala | Text thread with +17329836870"));
   assert.ok(brief.includes("Memory Candidates"));

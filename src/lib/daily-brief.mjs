@@ -317,6 +317,10 @@ function gatherShelfCycleActions(items = []) {
 }
 
 function hasMessageMemoryContent(section = {}) {
+  if (!section) {
+    return false;
+  }
+
   return [
     section.urgent_items,
     section.business_threads,
@@ -325,6 +329,16 @@ function hasMessageMemoryContent(section = {}) {
     section.suggested_followups,
     section.low_priority_summary
   ].some((items) => Array.isArray(items) && items.length);
+}
+
+function messageMemoryCounts(section = {}) {
+  return {
+    urgent: section.urgent_items?.length ?? 0,
+    businessThreads: section.business_threads?.length ?? 0,
+    unanswered: section.unanswered_messages?.length ?? 0,
+    memoryCandidates: section.memory_candidates?.length ?? 0,
+    followups: section.suggested_followups?.length ?? 0
+  };
 }
 
 function formatMessageMemoryItem(item = {}) {
@@ -424,6 +438,17 @@ export function buildDailyBrief({
     `- Waiting on others: ${waitingOnOthers.length}`,
     `- Internal/FYI: ${internal.length}`,
     `- Likely solicitations: ${solicitations.length}`,
+    ...(hasMessageMemoryContent(messageMemory)
+      ? [
+          `- Message business threads: ${messageMemoryCounts(messageMemory).businessThreads}`,
+          `- Message follow-ups: ${messageMemoryCounts(messageMemory).followups}`
+        ]
+      : [])
+  ];
+
+  appendMessageMemorySection(sections, messageMemory);
+
+  sections.push(
     "",
     `Needs Attention`,
     ...(needsAttention.length
@@ -453,7 +478,7 @@ export function buildDailyBrief({
     "",
     `ShelfCycle Follow-Through`,
     ...(shelfCycleActions.length ? shelfCycleActions.slice(0, 12).map((item) => `- ${item}`) : ["- None"])
-  ];
+  );
 
   if (hasIntelligenceCoverage) {
     sections.push("", `ClearEdge Intelligence Coverage`);
@@ -472,8 +497,6 @@ export function buildDailyBrief({
       );
     }
   }
-
-  appendMessageMemorySection(sections, messageMemory);
 
   return sections.join("\n");
 }

@@ -42,6 +42,17 @@ export async function runAutoBrief({
     throw new Error("Missing knowledge bundle or bundle path.");
   }
 
+  const messageMemory = includeMessages
+    ? await runMessagesMemorySource({
+        bundle: resolvedBundle,
+        config: {
+          enabled: true,
+          lookbackHours: hours,
+          maxThreads: maxMessageThreads,
+          ...messagesConfig
+        }
+      })
+    : null;
   const profile = await getProfile({ config: gmailConfig });
   const emailThreads = await fetchRecentThreads({
     hours,
@@ -60,18 +71,6 @@ export async function runAutoBrief({
   if (typeof decorateAnalyzedThreads === "function") {
     analyzedThreads = await decorateAnalyzedThreads(analyzedThreads);
   }
-
-  const messageMemory = includeMessages
-    ? await runMessagesMemorySource({
-        bundle: resolvedBundle,
-        config: {
-          enabled: true,
-          lookbackHours: hours,
-          maxThreads: maxMessageThreads,
-          ...messagesConfig
-        }
-      })
-    : null;
 
   const brief = buildDailyBrief({
     analyzedThreads,
@@ -97,6 +96,7 @@ export async function runAutoBrief({
   return {
     profile,
     analyzedThreads,
+    messageMemory,
     brief,
     sendResult
   };
