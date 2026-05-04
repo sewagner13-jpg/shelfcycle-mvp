@@ -1,0 +1,27 @@
+{
+  "notebookIntelligence": [
+    {
+      "entity": "ACCESS Organosilane G301",
+      "aliases": ["G301", "VTMO", "vinyltrimethoxysilane"],
+      "supplier": "ACCESS Rudolf Technologies",
+      "lastKnownGoodPrice": "$2.45/lb",
+      "masterSpecs": {
+        "casNumber": "2768-02-7",
+        "purity": "98.0% min",
+        "flashPoint": "73 F"
+      },
+      "historicalNotes": [
+        "Prior trials moved fastest when pricing, SDS, and sample timing were sent together."
+      ],
+      "logisticsNuances": [
+        "Woodland Group prefers OBL surrender confirmation before release."
+      ],
+      "commercialBenchmarks": [
+        "Previous tote business moved around $2.45/lb before freight."
+      ],
+      "complianceNotes": [
+        "Watch for CAS mismatches between supplier documents and prior master specs."
+      ]
+    }
+  ]
+}

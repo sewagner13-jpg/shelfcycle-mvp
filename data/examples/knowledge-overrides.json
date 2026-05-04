@@ -1,0 +1,45 @@
+{
+  "metadata": {
+    "organization": "ClearEdge Solutions"
+  },
+  "internalDomains": ["clear-edge.net"],
+  "internalUsers": [
+    {
+      "name": "Sean Wagner",
+      "email": "sean@clear-edge.net",
+      "role": "Owner / Sales / Procurement"
+    }
+  ],
+  "suppliers": [
+    {
+      "name": "ACCESS Rudolf Technologies",
+      "domain": "accessrudolftech.com"
+    },
+    {
+      "name": "NCS Resins",
+      "domain": "ncs.co.za"
+    },
+    {
+      "name": "AMG Antimony SICA",
+      "domain": "amg-antimony.com"
+    },
+    {
+      "name": "Catalynt Solutions",
+      "domain": "teamcatalynt.com"
+    }
+  ],
+  "opsVendors": [
+    {
+      "name": "ShelfCycle",
+      "domain": "shelfcycle.com"
+    },
+    {
+      "name": "Google Account Security",
+      "domain": "accounts.google.com"
+    },
+    {
+      "name": "ADP",
+      "domain": "adp.com"
+    }
+  ]
+}

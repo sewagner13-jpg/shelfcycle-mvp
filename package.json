@@ -1,0 +1,21 @@
+{
+  "name": "shelfcycle-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local MVP for ShelfCycle-assisted intake, matching, and drafting",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "export-knowledge": "node apps/local-sync/export-knowledge.mjs",
+    "get-refresh-token": "node apps/local-sync/get-refresh-token.mjs",
+    "make-hosted-settings": "node apps/local-sync/make-hosted-settings.mjs",
+    "push-knowledge": "node apps/local-sync/push-knowledge.mjs",
+    "push-settings": "node apps/local-sync/push-settings.mjs",
+    "daily-brief": "node apps/daily-brief/run.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "latest",
+    "@netlify/functions": "latest"
+  }
+}

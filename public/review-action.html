@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClearEdge Review Packet</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell review-shell">
+      <section class="hero">
+        <p class="eyebrow">ClearEdge Review Packet</p>
+        <h1 id="review-title">Loading review packet...</h1>
+        <p id="review-lede" class="lede">
+          This page is review-only. Nothing here writes into ShelfCycle automatically.
+        </p>
+      </section>
+
+      <section class="panel review-summary">
+        <div class="summary-grid">
+          <div class="stat-card">
+            <strong id="relationship-chip">-</strong>
+            <span>Relationship</span>
+          </div>
+          <div class="stat-card">
+            <strong id="silo-chip">-</strong>
+            <span>Silo</span>
+          </div>
+          <div class="stat-card">
+            <strong id="state-chip">-</strong>
+            <span>State</span>
+          </div>
+          <div class="stat-card">
+            <strong id="created-at">-</strong>
+            <span>Created</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace review-workspace">
+        <div class="panel output-panel">
+          <div class="panel-header">
+            <h2>Recommended Actions</h2>
+            <div class="actions">
+              <a id="open-shelfcycle" class="button-link primary" href="https://app.shelfcycle.com/" target="_blank" rel="noreferrer">Open ShelfCycle</a>
+              <button id="copy-json" class="ghost">Copy Review JSON</button>
+            </div>
+          </div>
+          <div id="available-actions" class="pill-grid"></div>
+
+          <div class="result-section">
+            <h3>Participants</h3>
+            <pre id="participants" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Summary</h3>
+            <pre id="summary" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Role Worklists</h3>
+            <pre id="role-worklists" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Warnings</h3>
+            <pre id="warnings" class="text-block"></pre>
+          </div>
+        </div>
+
+        <div class="panel output-panel">
+          <div class="result-section">
+            <h3>Draft Note</h3>
+            <pre id="draft-note" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Write Plan</h3>
+            <pre id="write-plan" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Suggested Creates</h3>
+            <pre id="suggested-creates" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Workspace Documents</h3>
+            <pre id="documents" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Raw Review JSON</h3>
+            <pre id="raw-json" class="text-block tall"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/review-action.js"></script>
+  </body>
+</html>

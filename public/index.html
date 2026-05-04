@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShelfCycle MVP</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">ClearEdge ShelfCycle MVP</p>
+        <h1>Paste input. Match against ShelfCycle. Draft before you write.</h1>
+        <p class="lede">
+          This MVP classifies transcripts, email threads, SDS/TDS text, contact blocks, customer data,
+          and locations, then turns them into a ShelfCycle write plan and follow-up draft.
+        </p>
+      </section>
+
+      <section class="panel controls">
+        <div class="panel-header">
+          <h2>Reference Data</h2>
+          <div class="actions">
+            <button id="load-sample" class="ghost">Load Sample Data</button>
+            <button id="export-knowledge" class="ghost">Export Knowledge Bundle</button>
+            <button id="clear-reference" class="ghost danger">Clear Data</button>
+          </div>
+        </div>
+        <p class="hint">
+          Load ShelfCycle CSV exports or a JSON bundle. Supported entity types: products, customers,
+          contacts, locations, and optional Notebook intelligence entries.
+        </p>
+        <input id="reference-files" type="file" multiple />
+        <div id="reference-status" class="stat-grid"></div>
+      </section>
+
+      <section class="workspace">
+        <div class="panel input-panel">
+          <div class="panel-header">
+            <h2>Input</h2>
+          </div>
+
+          <label for="workflow">Workflow</label>
+          <select id="workflow">
+            <option value="auto">Auto-detect</option>
+            <option value="call_report">Call report</option>
+            <option value="email_thread">Email thread</option>
+            <option value="new_product">New product</option>
+            <option value="new_customer">New customer</option>
+            <option value="new_contact">New contact</option>
+            <option value="new_location">New location</option>
+          </select>
+
+          <label for="input-text">Paste content</label>
+          <textarea
+            id="input-text"
+            placeholder="Paste transcript text, an email thread, SDS/TDS text, contact info, website text, or a shipping address block..."
+          ></textarea>
+
+          <div class="actions">
+            <button id="analyze" class="primary">Analyze</button>
+          </div>
+        </div>
+
+        <div class="panel output-panel">
+          <div class="panel-header">
+            <h2>Output</h2>
+          </div>
+
+          <div class="result-section">
+            <h3>Workflow</h3>
+            <div id="workflow-chip" class="chip muted">Waiting for input</div>
+            <pre id="signals" class="text-block small"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Write Plan</h3>
+            <pre id="write-plan" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Draft</h3>
+            <pre id="draft" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Notebook Intelligence</h3>
+            <div id="notebook-status" class="chip muted">No notebook context yet</div>
+            <div id="notebook-summary" class="notebook-summary"></div>
+            <pre id="notebook-brief" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Matches</h3>
+            <pre id="matches" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Warnings</h3>
+            <pre id="warnings" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Suggested Creates</h3>
+            <pre id="suggested-creates" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Follow-up Draft</h3>
+            <pre id="follow-up-draft" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Role Worklists</h3>
+            <pre id="role-worklists" class="text-block tall"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Automation Ideas</h3>
+            <pre id="automation-ideas" class="text-block"></pre>
+          </div>
+
+          <div class="result-section">
+            <h3>Raw JSON</h3>
+            <pre id="raw-json" class="text-block tall"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

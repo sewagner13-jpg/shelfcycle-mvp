@@ -1,0 +1,85 @@
+{
+  "products": [
+    {
+      "id": "prod-1",
+      "code": "ARG301-D",
+      "name": "ACCESS Organosilane G301",
+      "family": "ACCESS Silanes",
+      "supplier": "ACCESS Rudolf Technologies",
+      "casNumber": "2768-02-7",
+      "synonyms": ["VTMO", "vinyltrimethoxysilane"]
+    },
+    {
+      "id": "prod-2",
+      "code": "AER200-B",
+      "name": "Aerosil 200",
+      "family": "Fumed Silica",
+      "supplier": "Example Supplier Co",
+      "casNumber": "112945-52-5",
+      "synonyms": ["Aerosil 200", "hydrophilic fumed silica"]
+    }
+  ],
+  "customers": [
+    {
+      "id": "cust-1",
+      "name": "Sun Coatings",
+      "email": "info@suncoatings.example",
+      "website": "https://suncoatings.example",
+      "phone": "(813) 367-4444",
+      "status": "Prospect",
+      "defaultSalesPerson": "Sean Wagner",
+      "defaultCsr": ""
+    },
+    {
+      "id": "cust-2",
+      "name": "Atlas Minerals & Chemicals",
+      "email": "sales@atlasmin.example",
+      "website": "https://atlasmin.example",
+      "phone": "800-523-8269",
+      "status": "Active",
+      "defaultSalesPerson": "Sean Wagner",
+      "defaultCsr": ""
+    }
+  ],
+  "contacts": [
+    {
+      "id": "contact-1",
+      "name": "Courtney Quinn",
+      "companyName": "Sun Coatings",
+      "title": "Purchasing",
+      "email": "cquinn@suncoatings.example",
+      "officePhone": "(813) 367-4444 x1903",
+      "mobilePhone": "",
+      "faxPhone": "",
+      "documentTypes": ["SDS", "TDS"]
+    },
+    {
+      "id": "contact-2",
+      "name": "Dennis Askren",
+      "companyName": "Atlas Minerals & Chemicals",
+      "title": "R&D",
+      "email": "daskren@atlasmin.example",
+      "officePhone": "(770) 555-1100",
+      "mobilePhone": "",
+      "faxPhone": "",
+      "documentTypes": []
+    }
+  ],
+  "locations": [
+    {
+      "id": "loc-1",
+      "name": "Sun Coatings Main Plant",
+      "customerName": "Sun Coatings",
+      "type": "Billing",
+      "email": "receiving@suncoatings.example",
+      "phone": "(813) 367-4444",
+      "street1": "4701 E 7th Avenue",
+      "street2": "",
+      "city": "Tampa",
+      "state": "FL",
+      "zip": "33605",
+      "country": "US",
+      "shippingInstructions": "Call receiving dock before delivery."
+    }
+  ]
+}

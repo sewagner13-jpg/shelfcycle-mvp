@@ -1,0 +1,14 @@
+{
+  "recipient": "sean@clear-edge.net",
+  "hours": 24,
+  "maxMessages": 200,
+  "query": "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\"",
+  "timeZone": "America/New_York",
+  "locale": "en-US",
+  "gmailConfig": {
+    "clientId": "YOUR_GOOGLE_OAUTH_CLIENT_ID",
+    "clientSecret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET",
+    "refreshToken": "YOUR_GMAIL_REFRESH_TOKEN",
+    "user": "sean@clear-edge.net"
+  }
+}
