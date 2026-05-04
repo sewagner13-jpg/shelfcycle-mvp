@@ -14,8 +14,6 @@ const draftNoteEl = document.querySelector("#draft-note");
 const writePlanEl = document.querySelector("#write-plan");
 const suggestedCreatesEl = document.querySelector("#suggested-creates");
 const documentsEl = document.querySelector("#documents");
-const rawJsonEl = document.querySelector("#raw-json");
-const copyJsonButton = document.querySelector("#copy-json");
 const openLocalSubmitEl = document.querySelector("#open-local-submit");
 const openChatGptEl = document.querySelector("#open-chatgpt");
 
@@ -147,7 +145,6 @@ function renderAction(action = {}) {
   setOutput(writePlanEl, JSON.stringify(action.writePlan ?? null, null, 2));
   setOutput(suggestedCreatesEl, JSON.stringify(action.suggestedCreates ?? [], null, 2));
   setOutput(documentsEl, formatDocuments(action.workspaceArtifacts ?? {}));
-  setOutput(rawJsonEl, JSON.stringify(action, null, 2));
   openLocalSubmitEl.href = `http://localhost:4318/review-submit.html?reviewUrl=${encodeURIComponent(window.location.href)}`;
   openChatGptEl.href = action.chatGptUrl || "https://chatgpt.com/";
 }
@@ -174,18 +171,6 @@ async function loadReviewAction() {
   const payload = await response.json();
   renderAction(payload.action ?? {});
 }
-
-copyJsonButton.addEventListener("click", async () => {
-  if (!currentAction) {
-    return;
-  }
-
-  await navigator.clipboard.writeText(JSON.stringify(currentAction, null, 2));
-  copyJsonButton.textContent = "Copied";
-  window.setTimeout(() => {
-    copyJsonButton.textContent = "Copy Review JSON";
-  }, 1200);
-});
 
 loadReviewAction().catch((error) => {
   titleEl.textContent = "Review packet unavailable";

@@ -53,14 +53,13 @@ function isLocalMvpHost() {
 }
 
 function configureLocalOnlyBriefControls() {
-  if (isLocalMvpHost()) {
-    return;
+  if (!isLocalMvpHost() && briefRequestStatusEl) {
+    briefRequestStatusEl.textContent =
+      "Manual Gmail + Messages briefs run from the local MVP only. Open http://localhost:4318 to use Preview Brief or Send Brief Now.";
   }
 
-  for (const panel of [manualBriefPanel, briefControlsPanel]) {
-    if (panel) {
-      panel.hidden = true;
-    }
+  if (briefControlsPanel && !isLocalMvpHost()) {
+    briefControlsPanel.hidden = true;
   }
 }
 
@@ -562,6 +561,8 @@ async function addExclusion() {
 
 async function requestBrief({ dryRun = true } = {}) {
   if (!isLocalMvpHost()) {
+    briefRequestStatusEl.textContent =
+      "Manual Gmail + Messages briefs must be run from the local MVP because Netlify cannot read Mac Messages. Open http://localhost:4318 and use this button there.";
     return;
   }
 
