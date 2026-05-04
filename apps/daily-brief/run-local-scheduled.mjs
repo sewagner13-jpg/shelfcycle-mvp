@@ -32,6 +32,8 @@ function parseArgs(argv = []) {
     maxMessageThreads: null,
     recipient: "",
     briefFormat: "action_cards",
+    aiBrief: null,
+    aiBriefModel: "",
     dryRun: false,
     lockDir: defaultLockDir
   };
@@ -107,6 +109,22 @@ function parseArgs(argv = []) {
 
     if (value === "--brief-format") {
       args.briefFormat = argv[index + 1] || "action_cards";
+      index += 1;
+      continue;
+    }
+
+    if (value === "--ai-brief") {
+      args.aiBrief = true;
+      continue;
+    }
+
+    if (value === "--no-ai-brief") {
+      args.aiBrief = false;
+      continue;
+    }
+
+    if (value === "--ai-brief-model") {
+      args.aiBriefModel = argv[index + 1] || "";
       index += 1;
       continue;
     }
@@ -215,6 +233,11 @@ async function main() {
       query: settings.query,
       includeMessages: true,
       briefFormat: settings.briefFormat || args.briefFormat,
+      aiBriefConfig: {
+        ...(settings.aiBriefConfig ?? {}),
+        ...(args.aiBrief !== null ? { enabled: args.aiBrief } : {}),
+        ...(args.aiBriefModel ? { model: args.aiBriefModel } : {})
+      },
       messagesConfig: mergedMessagesConfig,
       briefControl,
       send: !args.dryRun,
@@ -241,6 +264,7 @@ async function main() {
       unknownContacts: messageMemory.unknown_contacts ?? [],
       messageFollowups: messageMemory.suggested_followups?.length ?? 0,
       reviewLinks: result.analyzedThreads?.filter((item) => item.reviewUrl).length ?? 0,
+      briefAi: result.briefAi,
       briefPath
     };
 

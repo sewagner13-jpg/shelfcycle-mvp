@@ -45,6 +45,11 @@ export default async (req) => {
       payload.maxMessages ?? settings.maxMessages ?? Number.parseInt(getEnv("DAILY_BRIEF_MAX_MESSAGES", "200"), 10),
     query: payload.query || settings.query || getEnv("DAILY_BRIEF_QUERY", "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\""),
     briefFormat: payload.briefFormat || settings.briefFormat || getEnv("DAILY_BRIEF_FORMAT", "action_cards"),
+    aiBriefConfig: {
+      ...(settings.aiBriefConfig ?? {}),
+      ...(payload.aiBrief !== undefined ? { enabled: Boolean(payload.aiBrief) } : {}),
+      ...(payload.aiBriefModel ? { model: payload.aiBriefModel } : {})
+    },
     timeZone: payload.timeZone || settings.timeZone || getEnv("DAILY_BRIEF_TIMEZONE", "America/New_York"),
     locale: payload.locale || settings.locale || getEnv("DAILY_BRIEF_LOCALE", "en-US"),
     decorateAnalyzedThreads: (analyzedThreads) => attachReviewActions(analyzedThreads, { siteUrl })

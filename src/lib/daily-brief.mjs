@@ -49,6 +49,10 @@ function sortByPriorityAndTime(items = []) {
 }
 
 function deriveNextStep(item = {}) {
+  if (item.briefAi?.action) {
+    return item.briefAi.action;
+  }
+
   if (isSolicitationThread(item)) {
     return "Ignore unless strategically relevant.";
   }
@@ -216,13 +220,19 @@ function chatGptUrlForItem(item = {}, nextStep = "") {
   }
 
   const participant = firstExternalParticipant(item);
+  const shelfCycleCandidate = item.briefAi?.shelfCycleCandidate;
   const prompt = [
-    "Help me decide the best real next step for this ClearEdge Solutions email thread.",
+    "Help me decide the best real next step for this ClearEdge Solutions thread.",
+    "Think like Sean Wagner, president of ClearEdge: sales, procurement, pricing, customer/supplier relationships, and ShelfCycle data quality all matter.",
     `Subject: ${item.subject || "No subject"}`,
     `Contact: ${participant?.name || participant?.email || "Unknown"}`,
     `Relationship: ${item.relationship?.relationship || "unknown"}`,
     `Silo: ${item.silo?.name || "unknown"}`,
+    item.briefAi?.why ? `Why it matters: ${item.briefAi.why}` : "",
     `Suggested next step: ${nextStep}`,
+    shelfCycleCandidate?.shouldConsider
+      ? `ShelfCycle candidate to review: ${shelfCycleCandidate.recordType || "record"} - ${shelfCycleCandidate.title || ""} - ${shelfCycleCandidate.summary || ""}`
+      : "",
     item.reviewUrl ? `Review packet: ${item.reviewUrl}` : "",
     "Keep the recommendation practical, approval-first, and avoid creating ShelfCycle records unless I explicitly decide to."
   ].filter(Boolean).join("\n");
@@ -635,6 +645,7 @@ function actionType(item = {}) {
 
 function keyPoint(item = {}) {
   return (
+    item.briefAi?.why ||
     item.analysis?.rawExtracts?.keyPoints?.[0] ||
     item.analysis?.rawExtracts?.actionItems?.[0] ||
     item.analysis?.draftNote?.summary ||
@@ -722,9 +733,17 @@ function formatActionCard(item = {}, { timeZone, locale } = {}) {
   const docs = docsLabel(item);
   const intelligence = intelligenceSuffix(item).replace(/^\s*\|\s*Intelligence:\s*/, "");
   const actions = actionLinks(item, nextStep);
+  const shelfCycleCandidate = item.briefAi?.shelfCycleCandidate;
+  const keyDetails = (item.briefAi?.keyDetails ?? []).filter(Boolean).slice(0, 3);
   const notes = [
     docs ? `Docs: ${escapeHtml(docs)}` : "",
     intelligence ? `Intelligence: ${escapeHtml(truncateInsight(intelligence, 150))}` : "",
+    keyDetails.length ? `Key details: ${escapeHtml(keyDetails.join(" / "))}` : "",
+    item.briefAi?.ownerLens ? `Owner lens: ${escapeHtml(truncateInsight(item.briefAi.ownerLens, 150))}` : "",
+    shelfCycleCandidate?.shouldConsider
+      ? `ShelfCycle: ${escapeHtml(truncateInsight(`${shelfCycleCandidate.recordType || "Review"} - ${shelfCycleCandidate.summary || shelfCycleCandidate.title || ""}`, 170))}`
+      : "",
+    item.briefAi?.riskNote ? `Risk: ${escapeHtml(truncateInsight(item.briefAi.riskNote, 140))}` : "",
     warnings.length ? `Notes: ${escapeHtml(truncateInsight(warnings[0], 150))}` : ""
   ].filter(Boolean);
   const links = actions.map((action) => htmlLink(action.label, action.href)).filter(Boolean).join(" | ");
@@ -796,6 +815,17 @@ function formatMessageMemoryBrief(messageMemory = null) {
   const business = messageMemory.business_threads ?? [];
   const followups = messageMemory.suggested_followups ?? [];
 
+  if (messageMemory.briefAi?.summary || messageMemory.briefAi?.action) {
+    lines.push(
+      `<p><strong>Summary:</strong> ${escapeHtml(messageMemory.briefAi.summary || "Review business text context.")}</p>`,
+      `<p><strong>Action:</strong> ${escapeHtml(messageMemory.briefAi.action || "Review if needed.")}</p>`
+    );
+
+    if (messageMemory.briefAi.shelfCycleCandidate) {
+      lines.push(`<p><strong>ShelfCycle:</strong> ${escapeHtml(messageMemory.briefAi.shelfCycleCandidate)}</p>`);
+    }
+  }
+
   if (business.length) {
     lines.push("<h3>Business Texts</h3>");
     lines.push(
@@ -866,6 +896,7 @@ function formatShelfCycleFollowThroughCards(items = [], { timeZone, locale } = {
       .map((attachment) => attachment.filename)
       .filter(Boolean);
     const warnings = item.analysis?.warnings ?? [];
+    const shelfCycleCandidate = item.briefAi?.shelfCycleCandidate;
 
     return [
       `<article class="brief-card brief-card-secondary">`,
@@ -875,6 +906,9 @@ function formatShelfCycleFollowThroughCards(items = [], { timeZone, locale } = {
         `<strong>Review:</strong> ${item.reviewUrl ? htmlLink("Review Packet", item.reviewUrl) : "None"}`,
         `<strong>Draft note:</strong> ${item.analysis?.draftNote?.summary ? "Yes" : "No"}`,
         `<strong>Suggested records:</strong> ${item.analysis?.suggestedCreates?.length ?? 0}`,
+        shelfCycleCandidate?.shouldConsider
+          ? `<strong>AI ShelfCycle candidate:</strong> ${escapeHtml(`${shelfCycleCandidate.recordType || "Review"} - ${shelfCycleCandidate.title || ""} - ${shelfCycleCandidate.summary || ""}`)}`
+          : "",
         `<strong>Documents:</strong> ${escapeHtml(attachmentNames.some((name) => /\b(sds|tds|coa)\b/i.test(name)) ? attachmentNames.slice(0, 3).join(", ") : "None flagged")}`,
         warnings[0] ? `<strong>Note:</strong> ${escapeHtml(truncateInsight(warnings[0], 130))}` : "",
         `<strong>Recommended action:</strong> ${escapeHtml(deriveNextStep(item) || "Review before updating ShelfCycle.")}`

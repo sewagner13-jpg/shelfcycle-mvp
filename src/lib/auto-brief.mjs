@@ -6,6 +6,7 @@ import { fetchRecentThreads, getProfile, sendEmail } from "./gmail-client.mjs";
 import { enrichThreadsWithWorkspaceArtifacts } from "./google-workspace-client.mjs";
 import { runMessagesMemorySource } from "./messages-memory.mjs";
 import { filterAnalyzedThreads } from "./brief-control.mjs";
+import { refineBriefWithAi } from "./brief-ai-refiner.mjs";
 
 async function loadKnowledgeBundle(bundlePath) {
   if (!bundlePath) {
@@ -35,6 +36,7 @@ export async function runAutoBrief({
   recipient,
   decorateAnalyzedThreads,
   briefControl = {},
+  aiBriefConfig = {},
   briefFormat = "action_cards",
   timeZone = "America/New_York",
   locale = "en-US"
@@ -71,6 +73,34 @@ export async function runAutoBrief({
     enrichedThreads.map((thread) => analyzeThread(thread, resolvedBundle))
   );
   analyzedThreads = filterAnalyzedThreads(analyzedThreads, briefControl);
+  let resolvedMessageMemory = messageMemory;
+  let briefAi = {
+    status: "disabled",
+    error: ""
+  };
+
+  try {
+    const refinement = await refineBriefWithAi({
+      analyzedThreads,
+      messageMemory: resolvedMessageMemory,
+      config: aiBriefConfig
+    });
+    analyzedThreads = refinement.analyzedThreads;
+    resolvedMessageMemory = refinement.messageMemory;
+    briefAi = {
+      status: refinement.status,
+      error: ""
+    };
+  } catch (error) {
+    briefAi = {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error)
+    };
+
+    if (aiBriefConfig.throwOnError) {
+      throw error;
+    }
+  }
 
   if (typeof decorateAnalyzedThreads === "function") {
     analyzedThreads = await decorateAnalyzedThreads(analyzedThreads);
@@ -80,7 +110,7 @@ export async function runAutoBrief({
     analyzedThreads,
     organization: resolvedBundle.organization,
     title: includeMessages ? "Daily ClearEdge Communications Brief" : "Daily ClearEdge Email Brief",
-    messageMemory,
+    messageMemory: resolvedMessageMemory,
     briefFormat,
     timeZone,
     locale
@@ -102,7 +132,8 @@ export async function runAutoBrief({
   return {
     profile,
     analyzedThreads,
-    messageMemory,
+    messageMemory: resolvedMessageMemory,
+    briefAi,
     brief,
     sendResult
   };

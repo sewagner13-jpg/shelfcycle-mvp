@@ -7,6 +7,7 @@ const createdAtEl = document.querySelector("#created-at");
 const availableActionsEl = document.querySelector("#available-actions");
 const participantsEl = document.querySelector("#participants");
 const summaryEl = document.querySelector("#summary");
+const ownerReadEl = document.querySelector("#owner-read");
 const roleWorklistsEl = document.querySelector("#role-worklists");
 const warningsEl = document.querySelector("#warnings");
 const draftNoteEl = document.querySelector("#draft-note");
@@ -83,6 +84,33 @@ function formatDocuments(workspaceArtifacts = {}) {
   return lines.join("\n") || "None";
 }
 
+function formatOwnerRead(briefAi = null) {
+  if (!briefAi) {
+    return "No AI owner read was attached to this review packet.";
+  }
+
+  const shelfCycle = briefAi.shelfCycleCandidate ?? {};
+  const lines = [
+    `Action: ${briefAi.action || "-"}`,
+    `Why: ${briefAi.why || "-"}`,
+    briefAi.ownerLens ? `Owner lens: ${briefAi.ownerLens}` : "",
+    briefAi.priorityReason ? `Priority reason: ${briefAi.priorityReason}` : "",
+    briefAi.riskNote ? `Risk: ${briefAi.riskNote}` : "",
+    "",
+    "Key details:",
+    ...((briefAi.keyDetails ?? []).length ? briefAi.keyDetails.map((item) => `- ${item}`) : ["- None"]),
+    "",
+    "ShelfCycle candidate:",
+    `- Consider: ${shelfCycle.shouldConsider ? "Yes" : "No"}`,
+    `- Record type: ${shelfCycle.recordType || "-"}`,
+    `- Title: ${shelfCycle.title || "-"}`,
+    `- Summary: ${shelfCycle.summary || "-"}`,
+    ...((shelfCycle.fields ?? []).length ? shelfCycle.fields.map((item) => `- Field: ${item}`) : [])
+  ];
+
+  return lines.filter((line) => line !== "").join("\n");
+}
+
 function renderAvailableActions(actions = []) {
   if (!actions.length) {
     availableActionsEl.innerHTML = '<span class="pill muted-pill">No manual actions detected.</span>';
@@ -112,6 +140,7 @@ function renderAction(action = {}) {
   renderAvailableActions(action.availableActions ?? []);
   setOutput(participantsEl, formatParticipants(action.externalParticipants));
   setOutput(summaryEl, action.summary || "None");
+  setOutput(ownerReadEl, formatOwnerRead(action.briefAi));
   setOutput(roleWorklistsEl, formatRoleWorklists(action.roleWorklists ?? {}));
   setOutput(warningsEl, (action.warnings ?? []).length ? action.warnings.join("\n") : "None");
   setOutput(draftNoteEl, JSON.stringify(action.draftNote ?? null, null, 2));

@@ -15,6 +15,8 @@ function parseArgs(argv = []) {
     maxMessageThreads: 120,
     query: "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\"",
     includeMessages: false,
+    aiBrief: null,
+    aiBriefModel: "",
     briefFormat: "action_cards",
     messagesDb: "",
     messagesMemoryConfig: "",
@@ -123,6 +125,25 @@ function parseArgs(argv = []) {
       continue;
     }
 
+    if (value === "--ai-brief") {
+      args.aiBrief = true;
+      args.provided.add("aiBrief");
+      continue;
+    }
+
+    if (value === "--no-ai-brief") {
+      args.aiBrief = false;
+      args.provided.add("aiBrief");
+      continue;
+    }
+
+    if (value === "--ai-brief-model") {
+      args.aiBriefModel = argv[index + 1] || "";
+      args.provided.add("aiBriefModel");
+      index += 1;
+      continue;
+    }
+
     if (value === "--brief-format") {
       args.briefFormat = argv[index + 1] || "action_cards";
       args.provided.add("briefFormat");
@@ -163,6 +184,11 @@ async function main() {
     maxMessageThreads: value("maxMessageThreads", args.maxMessageThreads),
     query: value("query", args.query),
     includeMessages: messagesMemoryConfig.enabled,
+    aiBriefConfig: {
+      ...(settings.aiBriefConfig ?? {}),
+      ...(args.provided.has("aiBrief") ? { enabled: args.aiBrief } : {}),
+      ...(args.provided.has("aiBriefModel") ? { model: args.aiBriefModel } : {})
+    },
     briefFormat: value("briefFormat", args.briefFormat),
     messagesConfig: messagesMemoryConfig.enabled
       ? {

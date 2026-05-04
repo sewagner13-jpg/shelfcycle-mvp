@@ -95,6 +95,7 @@ function firstExternalParticipant(item = {}) {
 
 function suggestedNextStep(item = {}) {
   return (
+    item.briefAi?.action ||
     item.analysis?.roleWorklists?.sales?.[0] ||
     item.analysis?.roleWorklists?.procurement?.[0] ||
     item.analysis?.roleWorklists?.owner?.[0] ||
@@ -112,13 +113,18 @@ function chatGptUrlForAction(item = {}) {
   const participant = firstExternalParticipant(item);
   const prompt = [
     "Help me decide the best real next step for this ClearEdge Solutions thread before I update ShelfCycle.",
+    "Think like Sean Wagner, president/owner: protect customer relationships, margin, procurement reliability, and ShelfCycle data quality.",
     `Subject: ${item.subject || "No subject"}`,
     `Contact: ${participant?.name || participant?.email || "Unknown"}`,
     `Relationship: ${item.relationship?.relationship || "unknown"}`,
     `Silo: ${item.silo?.name || "unknown"}`,
+    item.briefAi?.why ? `Why it matters: ${item.briefAi.why}` : "",
     `Suggested next step: ${nextStep}`,
+    item.briefAi?.shelfCycleCandidate?.shouldConsider
+      ? `ShelfCycle candidate to review: ${item.briefAi.shelfCycleCandidate.recordType || "record"} - ${item.briefAi.shelfCycleCandidate.title || ""} - ${item.briefAi.shelfCycleCandidate.summary || ""}`
+      : "",
     "Keep the recommendation practical, approval-first, and include what platform action I should take next."
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
 }
@@ -134,7 +140,8 @@ export function createReviewActionRecord(item = {}) {
     silo: item.silo ?? {},
     state: item.state ?? {},
     externalParticipants: item.externalParticipants ?? [],
-    summary: item.summary || item.analysis?.draftNote?.summary || "",
+    summary: item.briefAi?.why || item.summary || item.analysis?.draftNote?.summary || "",
+    briefAi: item.briefAi ?? item.analysis?.briefAi ?? null,
     availableActions: collectAvailableActions(item),
     executableActions: collectExecutableActions(item),
     chatGptUrl: chatGptUrlForAction(item),

@@ -35,6 +35,7 @@ export default async () => {
     maxMessages,
     query,
     briefFormat,
+    aiBriefConfig: settings.aiBriefConfig ?? {},
     timeZone,
     locale,
     decorateAnalyzedThreads: (analyzedThreads) => attachReviewActions(analyzedThreads, { siteUrl })
