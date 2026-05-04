@@ -95,8 +95,14 @@ async function fetchReviewAction(reviewUrl = "") {
   return payload.action;
 }
 
-function runDetachedLoginWindow() {
-  const child = spawn(process.execPath, [AUTOMATION_RUNNER_PATH, "login"], {
+function runDetachedLoginWindow(url = "") {
+  const args = [AUTOMATION_RUNNER_PATH, "login"];
+
+  if (url) {
+    args.push("--url", url);
+  }
+
+  const child = spawn(process.execPath, args, {
     cwd: projectRoot,
     detached: true,
     stdio: "ignore"
@@ -374,10 +380,31 @@ function createServer() {
       }
 
       if (request.method === "POST" && url.pathname === "/api/shelfcycle/open-session") {
-        runDetachedLoginWindow();
+        const payload = await readBody(request);
+        const action = payload.action ?? (payload.reviewUrl ? await fetchReviewAction(payload.reviewUrl) : null);
+        const target = action ? getNoteSubmissionTarget(action) : null;
+        runDetachedLoginWindow(target?.url ?? "");
         json(response, 200, {
           ok: true,
-          message: "A local ShelfCycle browser window has been opened. Log in if prompted, then return here."
+          message: target
+            ? `A local ShelfCycle browser window has been opened to ${target.customerName || "the matched customer"} notes. Log in if prompted, then return here.`
+            : "A local ShelfCycle browser window has been opened. Log in if prompted, then return here.",
+          submission: target
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/shelfcycle/note-target") {
+        const payload = await readBody(request);
+        const action = payload.action ?? (payload.reviewUrl ? await fetchReviewAction(payload.reviewUrl) : null);
+
+        if (!action) {
+          throw new Error("Missing review action.");
+        }
+
+        json(response, 200, {
+          ok: true,
+          submission: getNoteSubmissionTarget(action)
         });
         return;
       }

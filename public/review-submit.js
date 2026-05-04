@@ -7,12 +7,14 @@ const submitLedeEl = document.querySelector("#submit-lede");
 const submitStatusEl = document.querySelector("#submit-status");
 const actionSummaryEl = document.querySelector("#action-summary");
 const executableActionsEl = document.querySelector("#executable-actions");
+const noteTargetEl = document.querySelector("#note-target");
 const submitWritePlanEl = document.querySelector("#submit-write-plan");
 const submitDraftNoteEl = document.querySelector("#submit-draft-note");
 const submitWarningsEl = document.querySelector("#submit-warnings");
 const submitResultEl = document.querySelector("#submit-result");
 
 let currentAction = null;
+let currentSubmission = null;
 
 function setOutput(element, value) {
   element.textContent = value || "None";
@@ -55,6 +57,61 @@ function formatExecutableActions(actions = []) {
   }
 
   return actions.map((action) => `- ${action.label}: ${action.description}`).join("\n");
+}
+
+function formatNoteTarget(submission = null) {
+  if (!submission) {
+    return "No validated ShelfCycle note target is available for this review packet.";
+  }
+
+  return [
+    `Customer: ${submission.customerName || "-"} (${submission.customerId || "-"})`,
+    `ShelfCycle URL: ${submission.url || "-"}`,
+    `Date: ${submission.fields?.date || "-"}`,
+    `Type: ${submission.fields?.type || "-"}`,
+    `Title: ${submission.fields?.title || "-"}`,
+    "",
+    "Summary to enter:",
+    submission.fields?.summary || "-"
+  ].join("\n");
+}
+
+function hasCreateNoteAction(action = {}) {
+  return (action.executableActions ?? []).some((item) => item.key === "create_note");
+}
+
+function setSubmitEnabled(enabled) {
+  submitNoteButton.disabled = !enabled;
+  submitNoteButton.title = enabled ? "" : "This packet does not have a validated ShelfCycle note target.";
+}
+
+async function loadNoteTarget(action = {}) {
+  if (!hasCreateNoteAction(action)) {
+    currentSubmission = null;
+    setOutput(noteTargetEl, "No direct note creation action is available. This usually means no single matched ShelfCycle customer id was found.");
+    setSubmitEnabled(false);
+    return;
+  }
+
+  const response = await fetch("/api/shelfcycle/note-target", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ action })
+  });
+  const payload = await response.json();
+
+  if (!response.ok) {
+    currentSubmission = null;
+    setOutput(noteTargetEl, payload.error || "Could not validate ShelfCycle note target.");
+    setSubmitEnabled(false);
+    return;
+  }
+
+  currentSubmission = payload.submission;
+  setOutput(noteTargetEl, formatNoteTarget(currentSubmission));
+  setSubmitEnabled(Boolean(currentSubmission));
 }
 
 function syncQueryParam() {
@@ -111,15 +168,26 @@ async function loadReviewAction() {
   setOutput(submitWarningsEl, (currentAction.warnings ?? []).join("\n"));
   setOutput(submitResultEl, "");
   submitStatusEl.textContent = "Review packet loaded.";
+  await loadNoteTarget(currentAction);
 }
 
 async function openShelfCycleSession() {
   submitStatusEl.textContent = "Opening local ShelfCycle browser session...";
   const response = await fetch("/api/shelfcycle/open-session", {
-    method: "POST"
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(currentAction ? { action: currentAction } : {})
   });
   const payload = await response.json();
   submitStatusEl.textContent = payload.message || "ShelfCycle browser session opened.";
+
+  if (payload.submission) {
+    currentSubmission = payload.submission;
+    setOutput(noteTargetEl, formatNoteTarget(currentSubmission));
+    setSubmitEnabled(true);
+  }
 }
 
 async function submitNote() {
@@ -128,25 +196,44 @@ async function submitNote() {
     return;
   }
 
-  submitStatusEl.textContent = "Submitting note to ShelfCycle...";
-  submitResultEl.textContent = "";
-
-  const response = await fetch("/api/shelfcycle/create-note", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({ action: currentAction })
-  });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.error || "ShelfCycle note submission failed.");
+  if (!currentSubmission) {
+    submitStatusEl.textContent = "No validated note target is available. Load a review packet with a matched ShelfCycle customer first.";
+    return;
   }
 
-  submitStatusEl.textContent = "ShelfCycle note submitted.";
-  submitResultEl.textContent = JSON.stringify(payload, null, 2);
+  const confirmed = window.confirm(
+    `Create this ShelfCycle note?\n\nCustomer: ${currentSubmission.customerName || "-"}\nTitle: ${currentSubmission.fields?.title || "-"}\n\nThis will write to ShelfCycle.`
+  );
+
+  if (!confirmed) {
+    submitStatusEl.textContent = "Submission cancelled.";
+    return;
+  }
+
+  submitStatusEl.textContent = "Submitting note to ShelfCycle...";
+  submitResultEl.textContent = "";
+  setSubmitEnabled(false);
+
+  try {
+    const response = await fetch("/api/shelfcycle/create-note", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ action: currentAction })
+    });
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || "ShelfCycle note submission failed.");
+    }
+
+    submitStatusEl.textContent = "ShelfCycle note submitted.";
+    submitResultEl.textContent = JSON.stringify(payload, null, 2);
+  } finally {
+    setSubmitEnabled(Boolean(currentSubmission));
+  }
 }
 
 loadReviewButton.addEventListener("click", () => {
@@ -181,9 +268,15 @@ if (initialAction) {
   setOutput(submitWarningsEl, (currentAction.warnings ?? []).join("\n"));
   setOutput(submitResultEl, "");
   submitStatusEl.textContent = "Prefilled local action loaded.";
+  loadNoteTarget(currentAction).catch((error) => {
+    submitStatusEl.textContent = error instanceof Error ? error.message : "Could not validate ShelfCycle note target.";
+  });
 } else if (initialReviewUrl) {
   reviewUrlEl.value = initialReviewUrl;
   loadReviewAction().catch((error) => {
     submitStatusEl.textContent = error instanceof Error ? error.message : "Could not load review packet.";
   });
+} else {
+  setSubmitEnabled(false);
+  setOutput(noteTargetEl, "Load a review packet to validate the ShelfCycle note target.");
 }

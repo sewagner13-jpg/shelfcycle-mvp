@@ -61,6 +61,26 @@ async function createContext({ headless = false } = {}) {
   });
 }
 
+function safeShelfCycleUrl(value = "") {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return DEFAULT_URL;
+  }
+
+  const url = new URL(raw);
+
+  if (url.hostname !== "app.shelfcycle.com") {
+    throw new Error("Only app.shelfcycle.com URLs can be opened by the ShelfCycle automation.");
+  }
+
+  if (!url.pathname.startsWith("/org-clearedge")) {
+    throw new Error("Only the ClearEdge ShelfCycle organization can be opened by the ShelfCycle automation.");
+  }
+
+  return url.href;
+}
+
 async function getWorkingPage(context) {
   const existingPage = context.pages()[0];
 
@@ -171,17 +191,19 @@ async function waitForSavedNote(page, title) {
   }
 }
 
-export async function openShelfCycleSessionForLogin() {
+export async function openShelfCycleSessionForLogin({ url = DEFAULT_URL } = {}) {
   const context = await createContext({ headless: false });
   const page = await getWorkingPage(context);
+  const targetUrl = safeShelfCycleUrl(url);
 
-  await page.goto(DEFAULT_URL, { waitUntil: "domcontentloaded" });
+  await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
   await page.bringToFront();
   await dismissCommonPopups(page);
 
   return {
     ok: true,
-    message: "ShelfCycle browser session opened. Log in if prompted, then close the browser when you are done.",
+    message: "ShelfCycle browser session opened. Log in if prompted, then return to the review page.",
+    url: page.url(),
     context
   };
 }
@@ -191,7 +213,7 @@ export async function submitShelfCycleNote(submission = {}) {
 
   try {
     const page = await getWorkingPage(context);
-    await page.goto(submission.url, { waitUntil: "domcontentloaded" });
+    await page.goto(safeShelfCycleUrl(submission.url), { waitUntil: "domcontentloaded" });
     await page.bringToFront();
     await dismissCommonPopups(page);
 

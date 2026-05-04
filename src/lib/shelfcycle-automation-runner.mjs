@@ -2,11 +2,17 @@ import { openShelfCycleSessionForLogin, submitShelfCycleNote, loadSubmissionPayl
 
 function parseArgs(argv = []) {
   const [command = "", ...rest] = argv;
-  const args = { command, payload: "" };
+  const args = { command, payload: "", url: "" };
 
   for (let index = 0; index < rest.length; index += 1) {
     if (rest[index] === "--payload") {
       args.payload = rest[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+
+    if (rest[index] === "--url") {
+      args.url = rest[index + 1] ?? "";
       index += 1;
     }
   }
@@ -18,7 +24,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.command === "login") {
-    const { context, ...result } = await openShelfCycleSessionForLogin();
+    const { context, ...result } = await openShelfCycleSessionForLogin({ url: args.url });
     console.log(JSON.stringify(result));
     await new Promise((resolve) => {
       context.on("close", resolve);

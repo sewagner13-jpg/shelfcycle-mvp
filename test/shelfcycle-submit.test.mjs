@@ -38,6 +38,46 @@ test("getNoteSubmissionTarget builds a customer note submission payload", () => 
   assert.equal(target.url, "https://app.shelfcycle.com/org-clearedge/customers/cust-123/notes");
 });
 
+test("getNoteSubmissionTarget prefers approved AI ShelfCycle candidate text when available", () => {
+  const target = getNoteSubmissionTarget({
+    subject: "Re: PO #23017 Benzyl Alcohol",
+    briefAi: {
+      action: "Confirm the PO and release plan.",
+      why: "Customer sent a real PO for benzyl alcohol totes.",
+      keyDetails: ["20 totes", "FOB Savannah"],
+      shelfCycleCandidate: {
+        shouldConsider: true,
+        recordType: "customer note",
+        title: "PO #23017 Benzyl Alcohol",
+        summary: "Record PO and release details after approval.",
+        fields: ["PO #23017", "Benzyl Alcohol", "20 totes"]
+      }
+    },
+    draftNote: {
+      title: "Old draft title",
+      type: "Email",
+      summary: "Original parser summary."
+    },
+    matches: {
+      customer: [
+        {
+          score: 0.99,
+          candidate: {
+            id: "cust-123",
+            name: "Sun Coatings"
+          }
+        }
+      ]
+    }
+  });
+
+  assert.equal(target.fields.title, "PO #23017 Benzyl Alcohol");
+  assert.ok(target.fields.summary.includes("ShelfCycle candidate: Record PO and release details after approval."));
+  assert.ok(target.fields.summary.includes("Recommended action: Confirm the PO and release plan."));
+  assert.ok(target.fields.summary.includes("Suggested field: PO #23017"));
+  assert.ok(target.fields.summary.includes("Original draft: Original parser summary."));
+});
+
 test("collectExecutableActions exposes note creation only when a matched customer id exists", () => {
   const executable = collectExecutableActions({
     draftNote: {

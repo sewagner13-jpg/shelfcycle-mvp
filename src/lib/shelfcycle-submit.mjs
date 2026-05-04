@@ -26,6 +26,50 @@ function normalizeNoteDate(value = "") {
   return new Date().toISOString().slice(0, 10);
 }
 
+function aiShelfCycleCandidate(action = {}) {
+  const candidate = action.briefAi?.shelfCycleCandidate ?? action.analysis?.briefAi?.shelfCycleCandidate ?? null;
+
+  if (!candidate?.shouldConsider) {
+    return null;
+  }
+
+  return candidate;
+}
+
+function buildNoteSummary({ action = {}, draftSummary = "", aiCandidate = null } = {}) {
+  const parts = [];
+
+  if (aiCandidate?.summary) {
+    parts.push(`ShelfCycle candidate: ${aiCandidate.summary}`);
+  }
+
+  if (action.briefAi?.action) {
+    parts.push(`Recommended action: ${action.briefAi.action}`);
+  }
+
+  if (action.briefAi?.why) {
+    parts.push(`Why it matters: ${action.briefAi.why}`);
+  }
+
+  for (const detail of action.briefAi?.keyDetails ?? []) {
+    if (detail) {
+      parts.push(`Key detail: ${detail}`);
+    }
+  }
+
+  for (const field of aiCandidate?.fields ?? []) {
+    if (field) {
+      parts.push(`Suggested field: ${field}`);
+    }
+  }
+
+  if (draftSummary && !parts.some((part) => part.includes(draftSummary))) {
+    parts.push(`Original draft: ${draftSummary}`);
+  }
+
+  return compactWhitespace(parts.join("\n"));
+}
+
 export function getNoteSubmissionTarget(action = {}) {
   const customer = topCustomerMatch(action);
 
@@ -36,7 +80,11 @@ export function getNoteSubmissionTarget(action = {}) {
   const draftNote = action.draftNote ?? {};
   const writePlan = action.writePlan ?? {};
   const fields = writePlan.fields ?? {};
-  const summary = compactWhitespace(draftNote.summary ?? fields.summary ?? action.summary ?? "");
+  const aiCandidate = aiShelfCycleCandidate(action);
+  const draftSummary = compactWhitespace(draftNote.summary ?? fields.summary ?? action.summary ?? "");
+  const summary = aiCandidate
+    ? buildNoteSummary({ action, draftSummary, aiCandidate })
+    : draftSummary;
 
   if (!summary) {
     throw new Error("Cannot submit note: draft note summary is empty.");
@@ -50,7 +98,7 @@ export function getNoteSubmissionTarget(action = {}) {
     fields: {
       date: normalizeNoteDate(fields.date),
       type: compactWhitespace(draftNote.type ?? fields.type ?? "Call"),
-      title: compactWhitespace(draftNote.title ?? fields.title ?? action.subject ?? "ClearEdge note"),
+      title: compactWhitespace(aiCandidate?.title ?? draftNote.title ?? fields.title ?? action.subject ?? "ClearEdge note"),
       summary
     }
   };
