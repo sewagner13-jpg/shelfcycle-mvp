@@ -15,7 +15,9 @@
     "make-hosted-settings": "node apps/local-sync/make-hosted-settings.mjs",
     "push-knowledge": "node apps/local-sync/push-knowledge.mjs",
     "push-settings": "node apps/local-sync/push-settings.mjs",
-    "daily-brief": "node apps/daily-brief/run.mjs"
+    "daily-brief": "node apps/daily-brief/run.mjs",
+    "daily-brief:local": "node apps/daily-brief/run-local-scheduled.mjs",
+    "daily-brief:install-mac": "node apps/daily-brief/install-mac-launchd.mjs"
   },
   "dependencies": {
     "@netlify/blobs": "latest",

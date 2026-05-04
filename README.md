@@ -283,6 +283,49 @@ Important local requirement for Messages:
 - the app only copies `chat.db`, `chat.db-wal`, and `chat.db-shm` into a temporary folder before querying
 - the app never writes to Apple Messages and stores only summarized memory metadata in its own store by default
 
+### Mac-local scheduled runner
+
+The hosted Netlify service cannot read Apple Messages on this Mac. To include iMessage/SMS memory every day, run the local scheduler on the Mac.
+
+Runner entry point:
+- `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run-local-scheduled.mjs`
+
+Installer entry point:
+- `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/install-mac-launchd.mjs`
+
+Install the daily 7:00 AM LaunchAgent and load it:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/install-mac-launchd.mjs \
+  --source-settings /private/tmp/clearedge-hosted-settings.json \
+  --hour 7 \
+  --minute 0 \
+  --load
+```
+
+The installer writes:
+- LaunchAgent: `/Users/seanwagner/Library/LaunchAgents/com.clearedge.daily-brief-local.plist`
+- stable Gmail settings copy: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/hosted-brief-settings.local.json`
+- local run logs and brief copies: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/daily-brief-runs/`
+
+Manual dry run without sending an email:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run-local-scheduled.mjs --dry-run
+```
+
+Manual real run that sends the combined brief:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run-local-scheduled.mjs
+```
+
+Disable the scheduled job:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/install-mac-launchd.mjs --uninstall
+```
+
 Deployed Netlify site:
 - `https://clearedge-daily-brief.netlify.app`
 
