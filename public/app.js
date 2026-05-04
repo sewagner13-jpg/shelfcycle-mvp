@@ -6,6 +6,9 @@ const analyzeButton = document.querySelector("#analyze");
 const loadSampleButton = document.querySelector("#load-sample");
 const exportKnowledgeButton = document.querySelector("#export-knowledge");
 const clearReferenceButton = document.querySelector("#clear-reference");
+const previewBriefButton = document.querySelector("#preview-brief");
+const sendBriefNowButton = document.querySelector("#send-brief-now");
+const briefRequestStatusEl = document.querySelector("#brief-request-status");
 
 const workflowChip = document.querySelector("#workflow-chip");
 const signalsEl = document.querySelector("#signals");
@@ -404,6 +407,46 @@ async function clearReferenceData() {
   renderReferenceStatus();
 }
 
+function formatBriefRequestStatus(result = {}) {
+  const payload = result.result ?? result;
+
+  if (!payload?.ok) {
+    return JSON.stringify(result, null, 2);
+  }
+
+  return [
+    `Status: ${payload.dryRun ? "Preview generated" : payload.sent ? "Brief emailed" : "Run completed"}`,
+    `Generated: ${payload.generatedAt}`,
+    `Gmail threads: ${payload.emailThreads}`,
+    `Message business threads: ${payload.messageBusinessThreads}`,
+    `Message follow-ups: ${payload.messageFollowups}`,
+    `Sent: ${payload.sent ? "yes" : "no"}`,
+    `Brief copy: ${payload.briefPath}`
+  ].join("\n");
+}
+
+async function requestBrief({ dryRun = true } = {}) {
+  briefRequestStatusEl.textContent = dryRun
+    ? "Generating preview. This may take a minute..."
+    : "Sending combined Gmail and Messages brief now. This may take a minute...";
+
+  const response = await fetch("/api/daily-brief/request", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ dryRun })
+  });
+  const result = await response.json();
+
+  if (!response.ok || result.error) {
+    briefRequestStatusEl.textContent = result.error || "Manual brief request failed.";
+    return;
+  }
+
+  briefRequestStatusEl.textContent = formatBriefRequestStatus(result);
+}
+
 function restoreReferenceData() {
   const saved = window.localStorage.getItem(LOCAL_STORAGE_KEY);
 
@@ -461,6 +504,14 @@ analyzeButton.addEventListener("click", analyze);
 loadSampleButton.addEventListener("click", loadSampleData);
 exportKnowledgeButton.addEventListener("click", exportKnowledgeBundle);
 clearReferenceButton.addEventListener("click", clearReferenceData);
+previewBriefButton.addEventListener("click", () => requestBrief({ dryRun: true }));
+sendBriefNowButton.addEventListener("click", () => {
+  const confirmed = window.confirm("Send the combined Gmail and Messages brief email now?");
+
+  if (confirmed) {
+    requestBrief({ dryRun: false });
+  }
+});
 
 async function initialize() {
   restoreReferenceData();

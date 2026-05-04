@@ -19,6 +19,21 @@
 
       <section class="panel controls">
         <div class="panel-header">
+          <h2>Manual Daily Brief</h2>
+          <div class="actions">
+            <button id="preview-brief" class="ghost">Preview Brief</button>
+            <button id="send-brief-now" class="primary">Send Brief Now</button>
+          </div>
+        </div>
+        <p class="hint">
+          Runs the Mac-local Messages-first brief immediately. Preview writes a local copy only;
+          Send Brief Now emails the combined Gmail and Messages brief using the saved local settings.
+        </p>
+        <pre id="brief-request-status" class="text-block small">No manual brief requested yet.</pre>
+      </section>
+
+      <section class="panel controls">
+        <div class="panel-header">
           <h2>Reference Data</h2>
           <div class="actions">
             <button id="load-sample" class="ghost">Load Sample Data</button>

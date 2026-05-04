@@ -320,6 +320,19 @@ Manual real run that sends the combined brief:
 node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/run-local-scheduled.mjs
 ```
 
+Manual request from the local MVP:
+- Start the local app at `http://localhost:4318`
+- Use `Preview Brief` to generate a local copy without sending
+- Use `Send Brief Now` to email the combined Gmail and Messages brief immediately
+
+The local API endpoint behind those buttons is:
+
+```bash
+curl -X POST http://localhost:4318/api/daily-brief/request \
+  -H "content-type: application/json" \
+  --data '{"dryRun":true}'
+```
+
 Disable the scheduled job:
 
 ```bash

@@ -18,6 +18,7 @@ const dataRoot = path.join(projectRoot, "data");
 const DEFAULT_INTELLIGENCE_FILE = path.join(dataRoot, "clearedge-intelligence.json");
 const LEGACY_INTELLIGENCE_FILE = path.join(dataRoot, "clearedge-brain-notebook-intelligence.json");
 const AUTOMATION_RUNNER_PATH = path.join(projectRoot, "src/lib/shelfcycle-automation-runner.mjs");
+const LOCAL_DAILY_BRIEF_RUNNER_PATH = path.join(projectRoot, "apps/daily-brief/run-local-scheduled.mjs");
 const execFileAsync = promisify(execFile);
 
 const MIME_TYPES = {
@@ -117,6 +118,46 @@ async function executeNoteSubmission(action = {}) {
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
+}
+
+function optionalNumber(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function requestLocalDailyBrief(payload = {}) {
+  const args = [LOCAL_DAILY_BRIEF_RUNNER_PATH];
+  const dryRun = Boolean(payload.dryRun);
+  const hours = optionalNumber(payload.hours);
+  const maxMessages = optionalNumber(payload.maxMessages);
+  const maxMessageThreads = optionalNumber(payload.maxMessageThreads);
+
+  if (dryRun) {
+    args.push("--dry-run");
+  }
+
+  if (hours) {
+    args.push("--hours", String(hours));
+  }
+
+  if (maxMessages) {
+    args.push("--max-messages", String(maxMessages));
+  }
+
+  if (maxMessageThreads) {
+    args.push("--max-message-threads", String(maxMessageThreads));
+  }
+
+  const { stdout } = await execFileAsync(process.execPath, args, {
+    cwd: projectRoot,
+    maxBuffer: 1024 * 1024
+  });
+
+  return JSON.parse(stdout.trim() || "{}");
 }
 
 async function readJsonIfPresent(filePath) {
@@ -238,6 +279,16 @@ function createServer() {
         json(response, 200, {
           ok: true,
           ...result
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/daily-brief/request") {
+        const payload = await readBody(request);
+        const result = await requestLocalDailyBrief(payload);
+        json(response, 200, {
+          ok: true,
+          result
         });
         return;
       }
