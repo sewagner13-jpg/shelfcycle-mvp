@@ -55,7 +55,7 @@ export function extractGoogleDriveFileIds(text = "") {
   return uniqueStrings(ids);
 }
 
-export function collectGmailAttachmentMetadata(payload = {}) {
+export function collectGmailAttachmentMetadata(payload = {}, { messageId = "", threadId = "" } = {}) {
   const attachments = [];
   const stack = [payload];
 
@@ -81,11 +81,13 @@ export function collectGmailAttachmentMetadata(payload = {}) {
       filename,
       mimeType: compactWhitespace(part.mimeType ?? ""),
       attachmentId,
+      messageId: compactWhitespace(messageId),
+      threadId: compactWhitespace(threadId),
       size: Number(part.body?.size ?? 0)
     });
   }
 
-  return dedupeBy(attachments, (item) => item.attachmentId || item.filename);
+  return dedupeBy(attachments, (item) => item.attachmentId ? `${item.messageId}:${item.attachmentId}` : item.filename);
 }
 
 async function googleJsonRequest(url, { config } = {}) {
@@ -178,8 +180,11 @@ export async function enrichThreadsWithWorkspaceArtifacts(
 
   for (const thread of threads) {
     const attachments = dedupeBy(
-      (thread.messages ?? []).flatMap((message) => collectGmailAttachmentMetadata(message.payload)),
-      (item) => item.attachmentId || item.filename
+      (thread.messages ?? []).flatMap((message) => collectGmailAttachmentMetadata(message.payload, {
+        messageId: message.id,
+        threadId: thread.id || message.threadId
+      })),
+      (item) => item.attachmentId ? `${item.messageId}:${item.attachmentId}` : item.filename
     );
     const driveFileIds = extractGoogleDriveFileIds(collectThreadText(thread));
     let driveFiles = [];

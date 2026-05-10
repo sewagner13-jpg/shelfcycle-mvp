@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClearEdge Settings</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="ClearEdge modules">
+        <div class="brand">
+          <div class="brand-mark">CE</div>
+          <div>
+            <strong>ClearEdge OS</strong>
+            <span>Settings</span>
+          </div>
+        </div>
+        <nav class="module-nav">
+          <a class="module-link" href="/">Home</a>
+          <a class="module-link" href="/briefs.html">Briefs</a>
+          <a class="module-link" href="/product-intake.html">SDS/TDS Intake</a>
+          <a class="module-link" href="/business-card.html">Business Cards</a>
+          <a class="module-link" href="/review-action.html">Review Landing</a>
+          <a class="module-link active" href="/settings.html">Settings</a>
+        </nav>
+        <div class="sidebar-note">
+          <span class="status-dot"></span>
+          Settings here affect local MVP matching and daily brief control data.
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">System Setup</p>
+            <h1>Settings</h1>
+            <p class="lede">
+              Manage reference data, knowledge exports, brief exclusions, unknown contacts, and local
+              run status. Secrets are not shown in the browser.
+            </p>
+          </div>
+          <div class="topbar-actions">
+            <a class="button-link primary" href="/briefs.html">Run Brief</a>
+            <a class="button-link ghost" href="/product-intake.html">Product Intake</a>
+          </div>
+        </header>
+
+        <section class="dashboard-grid">
+          <section id="reference-data" class="panel controls">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Data Foundation</p>
+                <h2>Reference Data</h2>
+              </div>
+              <div class="actions">
+                <button id="load-sample" class="ghost">Load Sample Data</button>
+                <button id="export-knowledge" class="ghost">Export Knowledge Bundle</button>
+                <button id="clear-reference" class="ghost danger">Clear Data</button>
+              </div>
+            </div>
+            <p class="hint">
+              Load ShelfCycle CSV exports or a JSON bundle. Supported entity types: products, customers,
+              contacts, locations, and optional ClearEdge intelligence entries.
+            </p>
+            <input id="reference-files" type="file" multiple />
+            <div id="reference-status" class="stat-grid"></div>
+          </section>
+
+          <section class="panel action-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Configuration Health</p>
+                <h2>Local responsibilities</h2>
+              </div>
+              <span class="status-pill status-ready">Visible setup</span>
+            </div>
+            <div class="next-action-list">
+              <span>Gmail OAuth and OpenAI keys are stored outside the public UI.</span>
+              <span>Mac Messages access depends on Full Disk Access for the local runner.</span>
+              <span>Reference data is stored in browser local storage for this MVP.</span>
+              <span>Hosted Netlify cannot read Apple Messages directly.</span>
+            </div>
+          </section>
+        </section>
+
+        <section id="brief-controls-panel" class="panel controls">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Brief Controls</p>
+              <h2>Exclusions and unknown contacts</h2>
+            </div>
+            <div class="actions">
+              <button id="refresh-brief-status" class="ghost">Refresh Status</button>
+            </div>
+          </div>
+          <div id="brief-run-status" class="stat-grid"></div>
+          <div class="brief-control-grid">
+            <div>
+              <label for="exclude-type">Do Not Include Type</label>
+              <select id="exclude-type">
+                <option value="domain">Domain</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+                <option value="keyword">Keyword</option>
+              </select>
+            </div>
+            <div>
+              <label for="exclude-value">Value</label>
+              <input id="exclude-value" type="text" placeholder="example.com, name@example.com, 8035551212, newsletter..." />
+            </div>
+            <div class="brief-control-action">
+              <button id="add-exclusion" class="ghost danger">Add Do Not Include</button>
+            </div>
+          </div>
+          <pre id="exclusion-list" class="text-block small">Loading exclusions...</pre>
+          <div class="result-section">
+            <h3>Unknown Contact Cleanup</h3>
+            <pre id="unknown-contacts" class="text-block small">Loading unknown contacts...</pre>
+          </div>
+        </section>
+
+        <section class="board-section panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Settings Map</p>
+              <h2>What each setting supports</h2>
+            </div>
+            <span class="muted-pill">MVP scope</span>
+          </div>
+          <div class="table-scroll">
+            <table class="workflow-table">
+              <thead>
+                <tr>
+                  <th>Setting</th>
+                  <th>Used by</th>
+                  <th>Impact</th>
+                  <th>Risk control</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Reference CSV/JSON</strong><span>Products, customers, contacts, locations.</span></td>
+                  <td>Briefs and Product Intake</td>
+                  <td>Better matching and spelling correction</td>
+                  <td>Local browser storage only</td>
+                </tr>
+                <tr>
+                  <td><strong>ClearEdge intelligence</strong><span>Product, pricing, logistics, compliance context.</span></td>
+                  <td>Briefs and intake analysis</td>
+                  <td>More useful owner-read summaries</td>
+                  <td>Output is advisory</td>
+                </tr>
+                <tr>
+                  <td><strong>Do Not Include</strong><span>Domains, emails, phones, keywords.</span></td>
+                  <td>Daily brief</td>
+                  <td>Reduces noise and personal/non-business items</td>
+                  <td>Can be reviewed and changed</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

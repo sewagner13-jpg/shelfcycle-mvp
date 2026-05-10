@@ -10,5 +10,15 @@
     "clientSecret": "YOUR_GOOGLE_OAUTH_CLIENT_SECRET",
     "refreshToken": "YOUR_GMAIL_REFRESH_TOKEN",
     "user": "sean@clear-edge.net"
+  },
+  "openAiConfig": {
+    "apiKey": "YOUR_OPENAI_API_KEY",
+    "businessCardModel": "gpt-4.1-mini"
+  },
+  "aiBriefConfig": {
+    "enabled": true,
+    "apiKey": "YOUR_OPENAI_API_KEY",
+    "model": "gpt-5-mini",
+    "targetStates": ["needs_attention", "waiting_on_other_side"]
   }
 }

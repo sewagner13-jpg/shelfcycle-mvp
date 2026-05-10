@@ -16,7 +16,9 @@ function parseArgs(argv = []) {
     maxMessages: 200,
     query: "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\"",
     timeZone: "America/New_York",
-    locale: "en-US"
+    locale: "en-US",
+    openAiApiKey: process.env.OPENAI_API_KEY || "",
+    openAiModel: process.env.OPENAI_BUSINESS_CARD_MODEL || process.env.OPENAI_MODEL || ""
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -97,6 +99,18 @@ function parseArgs(argv = []) {
     if (value === "--locale") {
       args.locale = argv[index + 1];
       index += 1;
+      continue;
+    }
+
+    if (value === "--openai-api-key") {
+      args.openAiApiKey = argv[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (value === "--openai-model") {
+      args.openAiModel = argv[index + 1];
+      index += 1;
     }
   }
 
@@ -137,6 +151,21 @@ async function main() {
       user: credentials.user || args.recipient
     }
   };
+
+  if (args.openAiApiKey) {
+    payload.openAiConfig = {
+      apiKey: args.openAiApiKey,
+      ...(args.openAiModel ? { businessCardModel: args.openAiModel } : {})
+    };
+  }
+
+  if (args.openAiApiKey) {
+    payload.aiBriefConfig = {
+      enabled: true,
+      apiKey: args.openAiApiKey,
+      ...(args.openAiModel ? { model: args.openAiModel } : {})
+    };
+  }
 
   await writeFile(args.out, JSON.stringify(payload, null, 2));
   console.log(`Hosted settings file written to ${args.out}`);

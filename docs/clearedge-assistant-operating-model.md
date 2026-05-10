@@ -218,7 +218,6 @@ High-value recurring automation:
 I can help with:
 
 - supplier quote normalization
-- landed-cost comparison
 - DDP, FOB, and EXW comparison summaries
 - document chase workflow for SDS, TDS, COA
 - lead-time and freight risk tracking

@@ -2,7 +2,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
-import { collectExecutableActions } from "./shelfcycle-submit.mjs";
+import { collectExecutableActions, collectProposedActions } from "./shelfcycle-action-router.mjs";
+import { buildShelfCycleReadyNote } from "./shelfcycle-ready-note.mjs";
 
 function isCoreBusinessThread(item = {}) {
   return (
@@ -130,12 +131,14 @@ function chatGptUrlForAction(item = {}) {
 }
 
 export function createReviewActionRecord(item = {}) {
-  return {
+  const actionRecord = {
     id: randomUUID(),
     viewToken: randomUUID(),
     createdAt: new Date().toISOString(),
     threadId: item.threadId,
     subject: item.subject || "",
+    workflow: item.analysis?.workflow || item.workflow || "",
+    fields: item.analysis?.fields ?? item.fields ?? {},
     relationship: item.relationship ?? {},
     silo: item.silo ?? {},
     state: item.state ?? {},
@@ -143,7 +146,6 @@ export function createReviewActionRecord(item = {}) {
     summary: item.briefAi?.why || item.summary || item.analysis?.draftNote?.summary || "",
     briefAi: item.briefAi ?? item.analysis?.briefAi ?? null,
     availableActions: collectAvailableActions(item),
-    executableActions: collectExecutableActions(item),
     chatGptUrl: chatGptUrlForAction(item),
     draftNote: item.analysis?.draftNote ?? null,
     writePlan: item.analysis?.writePlan || item.analysis?.write_plan || item.writePlan || null,
@@ -159,7 +161,15 @@ export function createReviewActionRecord(item = {}) {
       driveFiles: [],
       driveScopeAvailable: true,
       driveError: ""
-    }
+    },
+    shelfCycleReadyNote: null
+  };
+  actionRecord.shelfCycleReadyNote = buildShelfCycleReadyNote(actionRecord);
+
+  return {
+    ...actionRecord,
+    proposedActions: collectProposedActions(actionRecord),
+    executableActions: collectExecutableActions(actionRecord)
   };
 }
 
@@ -199,7 +209,10 @@ export async function attachLocalReviewActions(analyzedThreads = [], { storageDi
 
     enhanced.push({
       ...item,
-      reviewUrl: `${cleanBaseUrl}/review-action.html?id=${encodeURIComponent(actionRecord.id)}&token=${encodeURIComponent(actionRecord.viewToken)}`
+      reviewUrl: `${cleanBaseUrl}/review-action.html?id=${encodeURIComponent(actionRecord.id)}&token=${encodeURIComponent(actionRecord.viewToken)}`,
+      reviewAction: sanitizeReviewAction(actionRecord),
+      proposedActions: actionRecord.proposedActions,
+      executableActions: actionRecord.executableActions
     });
   }
 

@@ -21,6 +21,32 @@ function filterLowSignalThreads(items = []) {
   return items.filter((item) => item.events?.length);
 }
 
+function parseDate(value = "") {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function effectiveLookbackHours({ hours = 24, since = "", until = "" } = {}) {
+  const sinceDate = parseDate(since);
+
+  if (!sinceDate) {
+    return hours;
+  }
+
+  const untilDate = parseDate(until) ?? new Date();
+  const diffMs = untilDate.getTime() - sinceDate.getTime();
+
+  if (!Number.isFinite(diffMs) || diffMs <= 0) {
+    return hours;
+  }
+
+  return Math.max(1, Math.ceil(diffMs / (60 * 60 * 1000)));
+}
+
 export async function runAutoBrief({
   bundle,
   bundlePath,
@@ -28,6 +54,8 @@ export async function runAutoBrief({
   googleWorkspaceConfig = {},
   messagesConfig = {},
   hours = 24,
+  since = "",
+  until = "",
   maxMessages = 200,
   maxMessageThreads = 120,
   query = "-in:trash -in:spam -subject:\"Daily ShelfCycle Brief\"",
@@ -38,36 +66,61 @@ export async function runAutoBrief({
   briefControl = {},
   aiBriefConfig = {},
   briefFormat = "action_cards",
+  groupBy = "action",
   timeZone = "America/New_York",
-  locale = "en-US"
+  locale = "en-US",
+  onProgress = async () => {}
 } = {}) {
+  const progress = async (phase, detail = {}) => {
+    await onProgress({
+      phase,
+      ...detail
+    });
+  };
+
+  await progress("loading_knowledge", { label: "Loading ClearEdge knowledge bundle" });
   const resolvedBundle = bundle ?? (bundlePath ? await loadKnowledgeBundle(bundlePath) : null);
 
   if (!resolvedBundle) {
     throw new Error("Missing knowledge bundle or bundle path.");
   }
 
+  const resolvedHours = effectiveLookbackHours({ hours, since, until });
+
+  await progress("messages", { label: includeMessages ? "Reading Mac Messages memory" : "Skipping Mac Messages" });
   const messageMemory = includeMessages
     ? await runMessagesMemorySource({
         bundle: resolvedBundle,
         config: {
           enabled: true,
-          lookbackHours: hours,
+          lookbackHours: resolvedHours,
           maxThreads: maxMessageThreads,
           ...messagesConfig
         }
       })
     : null;
+  await progress("gmail_profile", { label: "Checking Gmail account" });
   const profile = await getProfile({ config: gmailConfig });
+  await progress("gmail_fetch", { label: "Fetching recent Gmail threads" });
   const emailThreads = await fetchRecentThreads({
-    hours,
+    hours: resolvedHours,
+    since,
+    until,
     maxMessages,
     query,
     config: gmailConfig
   });
+  await progress("workspace_artifacts", {
+    label: "Checking Gmail attachments and Workspace links",
+    emailThreads: emailThreads.length
+  });
   const enrichedThreads = await enrichThreadsWithWorkspaceArtifacts(emailThreads, {
     config: gmailConfig,
     ...googleWorkspaceConfig
+  });
+  await progress("classify", {
+    label: "Classifying emails into customer, supplier, internal, and noise",
+    emailThreads: enrichedThreads.length
   });
   let analyzedThreads = filterLowSignalThreads(
     enrichedThreads.map((thread) => analyzeThread(thread, resolvedBundle))
@@ -80,6 +133,10 @@ export async function runAutoBrief({
   };
 
   try {
+    await progress("ai_refine", {
+      label: "Refining the brief with owner-read action summaries",
+      analyzedThreads: analyzedThreads.length
+    });
     const refinement = await refineBriefWithAi({
       analyzedThreads,
       messageMemory: resolvedMessageMemory,
@@ -103,15 +160,29 @@ export async function runAutoBrief({
   }
 
   if (typeof decorateAnalyzedThreads === "function") {
+    await progress("review_links", {
+      label: "Creating local ShelfCycle review packet links",
+      analyzedThreads: analyzedThreads.length
+    });
     analyzedThreads = await decorateAnalyzedThreads(analyzedThreads);
   }
 
+  await progress("build_brief", {
+    label: "Building the final action-card brief",
+    analyzedThreads: analyzedThreads.length
+  });
   const brief = buildDailyBrief({
     analyzedThreads,
     organization: resolvedBundle.organization,
     title: includeMessages ? "Daily ClearEdge Communications Brief" : "Daily ClearEdge Email Brief",
     messageMemory: resolvedMessageMemory,
     briefFormat,
+    groupBy,
+    dateRange: {
+      hours: resolvedHours,
+      since,
+      until
+    },
     timeZone,
     locale
   });
@@ -119,6 +190,10 @@ export async function runAutoBrief({
   let sendResult = null;
 
   if (send) {
+    await progress("send_email", {
+      label: "Sending the brief email",
+      recipient: recipient || profile.emailAddress
+    });
     const to = recipient || profile.emailAddress;
     sendResult = await sendEmail({
       to,
@@ -128,6 +203,12 @@ export async function runAutoBrief({
       config: gmailConfig
     });
   }
+
+  await progress("complete", {
+    label: send ? "Brief emailed" : "Brief preview generated",
+    analyzedThreads: analyzedThreads.length,
+    sent: Boolean(sendResult)
+  });
 
   return {
     profile,

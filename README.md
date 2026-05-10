@@ -94,12 +94,22 @@ node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.m
 node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs deploy --prod
 ```
 
-Equivalent package scripts:
+Deploy behavior:
+
+- `node scripts/netlify-cli.mjs deploy --prod` is the normal deploy command for this repo.
+- The wrapper automatically adds `--no-build --dir public --functions netlify/functions`.
+- This avoids relying on a global `npm` binary and avoids Netlify Build plugin installation for the local static deploy.
+- If a Netlify Build run is intentionally required, pass `--use-build` or set `CLEAREDGE_NETLIFY_USE_BUILD=1`.
+
+Equivalent package scripts when a normal system `npm` is available:
 
 ```bash
-node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs --version
-node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/netlify-cli.mjs deploy --prod
+npm run netlify:cli -- --version
+npm run deploy:netlify:prod
+npm run deploy:netlify:prod:build
 ```
+
+Inside Codex, use the direct `node scripts/netlify-cli.mjs ...` commands because this runtime provides Node but not a global `npm` command.
 
 For non-interactive deploys, set `NETLIFY_AUTH_TOKEN` in the shell environment before running deploy commands.
 
@@ -122,6 +132,29 @@ The app works best when you paste:
 - contact block
 - customer website/about text
 - location/address block
+
+## Workflow Kernel
+
+The MVP records major work as local workflow runs under:
+
+```text
+/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/workflow-runs/
+```
+
+The workflow model is intentionally simple and durable:
+- each run has an id, type, mode, status, action state, ordered steps, metrics, artifacts, logs, and errors
+- daily brief runs use steps for Messages, Gmail, triage, AI refinement, review packet generation, brief build, and email send
+- ShelfCycle submissions use steps for review load, validation, human approval, local browser submission, and result logging
+- product/SDS/TDS intake uses steps for input, parsing, knowledge matching, draft action creation, and approval wait
+- no ShelfCycle write is performed during intake, triage, or brief generation
+
+Local workflow APIs:
+
+```text
+GET /api/workflows/runs
+GET /api/workflows/latest
+GET /api/workflows/run?id=<workflow-run-id>
+```
 
 ## Reference Data
 
@@ -293,12 +326,12 @@ Runner entry point:
 Installer entry point:
 - `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/install-mac-launchd.mjs`
 
-Install the daily 7:00 AM LaunchAgent and load it:
+Install the daily 3:00 AM LaunchAgent and load it:
 
 ```bash
 node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/daily-brief/install-mac-launchd.mjs \
   --source-settings /private/tmp/clearedge-hosted-settings.json \
-  --hour 7 \
+  --hour 3 \
   --minute 0 \
   --load
 ```
@@ -467,3 +500,14 @@ Template:
 5. Review the owner, sales, and procurement worklists.
 6. Export the knowledge bundle for the hosted brief service.
 7. Use the `write plan` to enter or review the changes in ShelfCycle.
+
+## Business Card Intake
+
+Open `http://localhost:4318/business-card.html` or the hosted `/business-card` page to scan a business card image, take a camera photo, or paste OCR/text. The scanner extracts visible contact/company details, optionally uses OpenAI web research for missing public business fields, checks ShelfCycle knowledge for existing customer/supplier/contact matches, and creates a review packet.
+
+Safety rules:
+- Scanning never writes to ShelfCycle.
+- Unknown fields stay blank unless visible on the card or verified from public sources.
+- Customer records are proposed as prospects when no existing customer match is found.
+- Supplier records are proposed when the relationship hint or extraction classifies the company as a supplier.
+- Contact creation stays blocked until a customer or supplier target is selected or already matched.

@@ -36,6 +36,32 @@ test("getNoteSubmissionTarget builds a customer note submission payload", () => 
   assert.equal(target.customerName, "Sun Coatings");
   assert.equal(target.fields.type, "Email");
   assert.equal(target.url, "https://app.shelfcycle.com/org-clearedge/customers/cust-123/notes");
+  assert.ok(target.fields.summary.includes("Summary:\n- Pricing and SDS still needed."));
+});
+
+test("getNoteSubmissionTarget decodes HTML entities before saving note text", () => {
+  const target = getNoteSubmissionTarget({
+    subject: "Customer &amp; supplier update",
+    matches: {
+      customer: [
+        {
+          candidate: {
+            id: "cust-123",
+            name: "Surface Koatings, Inc"
+          }
+        }
+      ]
+    },
+    draftNote: {
+      type: "Email",
+      title: "Order &amp; ETA",
+      summary: "I&#39;d like to place an order for Rucolac B-591 &amp; confirm ETA."
+    }
+  });
+
+  assert.equal(target.fields.title, "Order & ETA");
+  assert.ok(target.fields.summary.includes("I'd like to place an order for Rucolac B-591 & confirm ETA."));
+  assert.ok(target.fields.summary.includes("Decision / status:"));
 });
 
 test("getNoteSubmissionTarget prefers approved AI ShelfCycle candidate text when available", () => {
@@ -72,10 +98,42 @@ test("getNoteSubmissionTarget prefers approved AI ShelfCycle candidate text when
   });
 
   assert.equal(target.fields.title, "PO #23017 Benzyl Alcohol");
-  assert.ok(target.fields.summary.includes("ShelfCycle candidate: Record PO and release details after approval."));
-  assert.ok(target.fields.summary.includes("Recommended action: Confirm the PO and release plan."));
-  assert.ok(target.fields.summary.includes("Suggested field: PO #23017"));
-  assert.ok(target.fields.summary.includes("Original draft: Original parser summary."));
+  assert.ok(target.fields.summary.includes("Summary:\n- Customer sent a real PO for benzyl alcohol totes."));
+  assert.ok(target.fields.summary.includes("Decision / status:\n- Record PO and release details after approval."));
+  assert.ok(target.fields.summary.includes("Key variables:"));
+  assert.ok(target.fields.summary.includes("- PO #23017"));
+  assert.ok(target.fields.summary.includes("Next step:\n- Confirm the PO and release plan."));
+});
+
+test("getNoteSubmissionTarget supports an approved searchable customer label", () => {
+  const target = getNoteSubmissionTarget({
+    subject: "Re: MAK Chemicals follow-up",
+    draftNote: {
+      title: "MAK Chemicals follow-up",
+      type: "Email",
+      summary: "Follow up on the open MAK Chemicals item."
+    },
+    matches: {
+      customer: [
+        {
+          score: 0.8,
+          candidate: {
+            name: "MAK Chemicals"
+          }
+        }
+      ]
+    }
+  }, {
+    selectedTarget: {
+      kind: "customer",
+      id: "",
+      label: "MAK Chemicals"
+    }
+  });
+
+  assert.equal(target.customerId, "");
+  assert.equal(target.customerName, "MAK Chemicals");
+  assert.equal(target.url, "https://app.shelfcycle.com/org-clearedge/contacts");
 });
 
 test("collectExecutableActions exposes note creation only when a matched customer id exists", () => {

@@ -46,3 +46,20 @@ test("buildLaunchdPlist can install a dry-run job for safe testing", () => {
 
   assert.ok(plist.includes("<string>--dry-run</string>"));
 });
+
+test("buildLaunchdPlist defaults the daily brief to 3 AM ET", () => {
+  const plist = buildLaunchdPlist({
+    label: "com.clearedge.test-default",
+    nodePath: "/usr/local/bin/node",
+    runnerPath: "/project/apps/daily-brief/run-local-scheduled.mjs",
+    workingDirectory: "/project",
+    bundle: "/project/.local/clearedge-knowledge-local.json",
+    settings: "/project/.local/hosted-brief-settings.local.json",
+    messagesMemoryConfig: "/project/.local/messages-memory-config.local.json"
+  });
+
+  assert.ok(plist.includes("<key>Hour</key>"));
+  assert.ok(plist.includes("<integer>3</integer>"));
+  assert.ok(plist.includes("<key>Minute</key>"));
+  assert.ok(plist.includes("<integer>0</integer>"));
+});

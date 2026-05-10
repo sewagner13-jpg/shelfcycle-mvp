@@ -47,6 +47,9 @@ test("attachLocalReviewActions creates local approval-first review URLs for core
     });
 
     assert.ok(enhanced[0].reviewUrl.startsWith("http://localhost:4318/review-action.html?id="));
+    assert.ok(enhanced[0].proposedActions.some((item) => item.actionType === "customer_create" && item.executable));
+    assert.ok(enhanced[0].executableActions.some((item) => item.actionType === "customer_create"));
+    assert.equal(enhanced[0].reviewAction.viewToken, undefined);
     assert.equal(enhanced[1].reviewUrl, undefined);
 
     const url = new URL(enhanced[0].reviewUrl);

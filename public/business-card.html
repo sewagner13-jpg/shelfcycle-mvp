@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Business Card Intake</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="ClearEdge modules">
+        <div class="brand">
+          <div class="brand-mark">CE</div>
+          <div>
+            <strong>ClearEdge OS</strong>
+            <span>Business Card</span>
+          </div>
+        </div>
+
+        <nav class="module-nav">
+          <a class="module-link" href="/">Home</a>
+          <a class="module-link" href="/briefs.html">Briefs</a>
+          <a class="module-link" href="/product-intake.html">SDS/TDS Intake</a>
+          <a class="module-link active" href="/business-card.html">Business Cards</a>
+          <a class="module-link" href="/review-action.html">Review Landing</a>
+          <a class="module-link" href="/settings.html">Settings</a>
+        </nav>
+
+        <div class="sidebar-note">
+          <span class="status-dot"></span>
+          This page extracts card information only. ShelfCycle saves require a later approval step.
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Approval-first intake</p>
+            <h1>Business Card Extractor</h1>
+            <p class="lede">Take a picture or upload a card, extract the visible contact and company information, then review the ShelfCycle-ready fields before anything is saved.</p>
+          </div>
+          <div class="topbar-actions">
+            <a class="button-link ghost" href="/review-submit.html">Open Review Submit</a>
+          </div>
+        </header>
+
+        <section class="record-page">
+          <div class="record-main panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Card Input</p>
+                <h2>Scan or paste</h2>
+              </div>
+              <span id="vision-status-pill" class="status-pill status-review">Checking vision</span>
+            </div>
+
+            <div class="business-card-input-grid">
+              <label>
+                <span>Business card image</span>
+                <input id="card-image" type="file" accept="image/*" />
+              </label>
+
+              <label>
+                <span>Relationship hint</span>
+                <select id="relationship-hint">
+                  <option value="auto">Auto decide</option>
+                  <option value="customer_prospect">Customer prospect</option>
+                  <option value="supplier">Supplier</option>
+                </select>
+              </label>
+
+              <label class="business-card-web-toggle">
+                <input id="web-research" type="checkbox" />
+                <span>Optional: use ChatGPT web research to fill missing public company info</span>
+              </label>
+            </div>
+
+            <div class="business-card-existing-contact">
+              <div>
+                <p class="section-kicker">Existing Company Contact</p>
+                <h3>Add only a contact to an existing ShelfCycle record</h3>
+                <p class="small muted">Use this when the customer or supplier already exists. The scan will prepare the contact and will not propose creating a new company.</p>
+              </div>
+              <div class="business-card-input-grid">
+                <label>
+                  <span>Entry mode</span>
+                  <select id="card-entry-mode">
+                    <option value="auto">Auto: create company if needed</option>
+                    <option value="existing_customer_contact">Contact under existing customer</option>
+                    <option value="existing_supplier_contact">Contact under existing supplier</option>
+                  </select>
+                </label>
+
+                <label>
+                  <span>Existing company name</span>
+                  <input id="existing-company-label" type="text" placeholder="Type the existing ShelfCycle customer or supplier name" />
+                </label>
+              </div>
+            </div>
+
+            <div class="business-card-camera">
+              <div class="business-card-camera-header">
+                <div>
+                  <p class="section-kicker">Mac Camera</p>
+                  <h3>Take a picture of the card</h3>
+                </div>
+                <div class="form-actions compact-actions">
+                  <button id="start-camera" class="ghost" type="button">Start Camera</button>
+                  <button id="capture-card" class="primary" type="button" disabled>Take Photo</button>
+                  <button id="retake-card" class="ghost" type="button" disabled>Retake</button>
+                  <button id="stop-camera" class="ghost" type="button" disabled>Stop Camera</button>
+                </div>
+              </div>
+
+              <div id="camera-panel" class="business-card-camera-panel hidden">
+                <video id="card-camera-video" playsinline muted></video>
+                <canvas id="card-camera-canvas" class="hidden"></canvas>
+                <img id="card-camera-preview" class="hidden" alt="Captured business card preview" />
+              </div>
+              <p id="camera-status" class="small muted">Camera access stays in your browser. The captured image is only sent when you click Extract Card Info.</p>
+            </div>
+
+            <label for="card-text">Pasted card text or OCR</label>
+            <textarea id="card-text" rows="9" placeholder="Paste business card text here if you have it. Image-only scanning uses OpenAI vision to extract text from the card."></textarea>
+
+            <div class="form-actions">
+              <button id="scan-card" class="primary">Extract Card Info</button>
+              <button id="clear-card" class="ghost" type="button">Clear</button>
+            </div>
+
+            <pre id="card-status" class="text-block"></pre>
+          </div>
+
+          <aside class="record-side panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Rules</p>
+                <h2>Data safety</h2>
+              </div>
+              <span class="muted-pill">Safe by default</span>
+            </div>
+            <div class="activity-feed">
+              <div class="activity-item">
+                <strong>No guessing</strong>
+                <span>Unknown fields stay blank unless visible on the card or verified from public sources.</span>
+              </div>
+              <div class="activity-item">
+                <strong>Extract first</strong>
+                <span>The first step is only contact/company field extraction. The ShelfCycle agent only runs after approval.</span>
+              </div>
+              <div class="activity-item">
+                <strong>Prospect or supplier</strong>
+                <span>If the company is not already matched, the packet proposes either customer prospect or supplier creation.</span>
+              </div>
+            </div>
+          </aside>
+        </section>
+
+        <section id="card-results" class="panel hidden">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Extracted Fields</p>
+              <h2>Business card result</h2>
+            </div>
+            <span id="card-confidence" class="status-pill status-review">Review</span>
+          </div>
+          <div id="card-result-grid" class="business-card-result-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/business-card.js"></script>
+  </body>
+</html>

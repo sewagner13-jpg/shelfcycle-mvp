@@ -59,6 +59,11 @@ test("resolveBriefAiConfig enables only when an API key is available", () => {
   assert.equal(resolveBriefAiConfig({ enabled: false, apiKey: "test-key" }).enabled, false);
 });
 
+test("resolveBriefAiConfig sets a bounded request timeout", () => {
+  assert.equal(resolveBriefAiConfig({ enabled: true, apiKey: "test-key", timeoutMs: 1234 }).timeoutMs, 1234);
+  assert.equal(resolveBriefAiConfig({ enabled: true, apiKey: "test-key", timeoutMs: 0 }).timeoutMs, 60000);
+});
+
 test("buildBriefAiPayload sends concise owner/operator context without raw full thread dumps", () => {
   const payload = buildBriefAiPayload({
     analyzedThreads: [sampleThread()],
@@ -73,6 +78,35 @@ test("buildBriefAiPayload sends concise owner/operator context without raw full 
   assert.deepEqual(payload.threads[0].matchedEntities.products, ["Benzyl Alcohol"]);
   assert.deepEqual(payload.threads[0].attachments, ["PO23017.pdf"]);
   assert.ok(payload.goal.includes("owner/operator"));
+});
+
+test("buildBriefAiPayload only sends Needs Sean and Waiting on others threads for AI summaries", () => {
+  const payload = buildBriefAiPayload({
+    analyzedThreads: [
+      sampleThread({ threadId: "needs", state: { state: "needs_attention" } }),
+      sampleThread({ threadId: "waiting", state: { state: "waiting_on_other_side" } }),
+      sampleThread({ threadId: "info", state: { state: "informational" } }),
+      sampleThread({
+        threadId: "noise",
+        state: { state: "needs_attention" },
+        relationship: { relationship: "solicitation", subtype: "newsletter" }
+      })
+    ]
+  });
+
+  assert.deepEqual(payload.threads.map((item) => item.threadId), ["needs", "waiting"]);
+  assert.ok(payload.aiSummaryScope.includes("needs_attention"));
+});
+
+test("resolveBriefAiConfig supports explicit AI summary target states", () => {
+  assert.deepEqual(
+    resolveBriefAiConfig({
+      enabled: true,
+      apiKey: "test-key",
+      targetStates: ["needs_attention"]
+    }).targetStates,
+    ["needs_attention"]
+  );
 });
 
 test("requestBriefAiRefinement calls OpenAI Responses API and parses structured output", async () => {
@@ -126,6 +160,26 @@ test("requestBriefAiRefinement calls OpenAI Responses API and parses structured 
   assert.equal(calls[0].body.model, "test-model");
   assert.equal(calls[0].body.text.format.type, "json_schema");
   assert.equal(result.threads[0].action, "Confirm the PO and release plan.");
+});
+
+test("requestBriefAiRefinement aborts slow OpenAI requests", async () => {
+  const fetchImpl = async (_url, options = {}) =>
+    new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+    });
+
+  await assert.rejects(
+    requestBriefAiRefinement({
+      payload: buildBriefAiPayload({ analyzedThreads: [sampleThread()] }),
+      config: { enabled: true, apiKey: "test-key", timeoutMs: 5 },
+      fetchImpl
+    }),
+    /timed out after 5ms/
+  );
 });
 
 test("refineBriefWithAi attaches owner-read fields to analyzed threads", async () => {

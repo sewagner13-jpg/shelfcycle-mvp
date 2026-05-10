@@ -101,6 +101,62 @@ function extractKeyPoints(lines = []) {
     .slice(0, 8);
 }
 
+function readableList(items = [], fallback = "") {
+  const values = items.filter(Boolean);
+
+  if (!values.length) {
+    return fallback;
+  }
+
+  if (values.length === 1) {
+    return values[0];
+  }
+
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function formatNarrativeNote({
+  subject,
+  customerName,
+  externalParticipants,
+  productMatches,
+  keyPoints,
+  actionItems
+}) {
+  const people = readableList(
+    externalParticipants.slice(0, 3).map((participant) => participant.name || participant.email),
+    "the outside party"
+  );
+  const products = readableList(productMatches.slice(0, 3), "");
+  const firstPoint = keyPoints[0] || "";
+  const firstAction = actionItems[0] || "";
+  const lines = [];
+
+  lines.push(
+    `This email thread with ${people}${customerName ? ` at ${customerName}` : ""}${subject ? ` about "${subject}"` : ""} should be treated as a single business interaction.`
+  );
+
+  if (products) {
+    lines.push(`Products or technical subjects discussed: ${products}.`);
+  }
+
+  if (firstPoint) {
+    lines.push(`Main takeaway: ${firstPoint}.`);
+  }
+
+  if (firstAction) {
+    lines.push(`Recommended next step: ${firstAction}.`);
+  } else {
+    lines.push("Recommended next step: review the thread and decide whether a ShelfCycle note, contact update, document follow-up, or pricing task is needed.");
+  }
+
+  return lines.join(" ");
+}
+
 function formatSummary({
   subject,
   customerName,
@@ -110,7 +166,17 @@ function formatSummary({
   keyPoints,
   actionItems
 }) {
-  const sections = ["Interaction Type: Email"];
+  const sections = [
+    `Thread Summary:\n${formatNarrativeNote({
+      subject,
+      customerName,
+      externalParticipants,
+      productMatches,
+      keyPoints,
+      actionItems
+    })}`,
+    "Interaction Type: Email"
+  ];
 
   if (subject) {
     sections.push(`Subject: ${subject}`);

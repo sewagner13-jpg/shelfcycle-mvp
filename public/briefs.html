@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClearEdge Briefs</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="ClearEdge modules">
+        <div class="brand">
+          <div class="brand-mark">CE</div>
+          <div>
+            <strong>ClearEdge OS</strong>
+            <span>Briefs</span>
+          </div>
+        </div>
+        <nav class="module-nav">
+          <a class="module-link" href="/">Home</a>
+          <a class="module-link active" href="/briefs.html">Briefs</a>
+          <a class="module-link" href="/product-intake.html">SDS/TDS Intake</a>
+          <a class="module-link" href="/business-card.html">Business Cards</a>
+          <a class="module-link" href="/review-action.html">Review Landing</a>
+          <a class="module-link" href="/settings.html">Settings</a>
+        </nav>
+        <div class="sidebar-note">
+          <span class="status-dot"></span>
+          Mac Messages require the local app. Hosted Netlify can handle email and review links, but cannot read Apple Messages.
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Daily Communications</p>
+            <h1>Briefs</h1>
+            <p class="lede">
+              Run the Messages-first daily brief, review the last run, manage exclusions, and clean up
+              unknown business-looking text contacts.
+            </p>
+          </div>
+          <div class="topbar-actions">
+            <a class="button-link primary" href="#manual-brief-panel">Manual Brief</a>
+            <a class="button-link ghost" href="/review-submit.html">Open Review Link</a>
+          </div>
+        </header>
+
+        <section class="dashboard-grid">
+          <section id="manual-brief-panel" class="panel action-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Manual Trigger</p>
+                <h2>Run combined brief</h2>
+              </div>
+              <div class="actions">
+                <button id="send-brief-now" class="primary">Run And Email Brief Now</button>
+                <button id="send-email-only-brief" class="ghost">Run Email-Only Preview</button>
+                <button id="preview-brief" class="ghost">Preview Only - No Email</button>
+              </div>
+            </div>
+            <p class="hint">
+              Run And Email Brief Now starts the combined Gmail and Messages brief and sends it. Run Email-Only
+              Preview skips Mac Messages, keeps all Gmail/review/ChatGPT links, writes a local copy, and does not
+              send an email. Preview Only writes a local combined copy without sending.
+            </p>
+            <div class="brief-control-grid brief-run-options" aria-label="Manual brief options">
+              <div>
+                <label for="brief-lookback-hours">Lookback Hours</label>
+                <input id="brief-lookback-hours" type="number" min="1" max="720" step="1" value="24" />
+              </div>
+              <div>
+                <label for="brief-start">Start Date / Time</label>
+                <input id="brief-start" type="datetime-local" />
+              </div>
+              <div>
+                <label for="brief-end">End Date / Time</label>
+                <input id="brief-end" type="datetime-local" />
+              </div>
+              <div>
+                <label for="brief-group-by">Organize By</label>
+                <select id="brief-group-by">
+                  <option value="action">Action type</option>
+                  <option value="company">Company</option>
+                  <option value="sender">Sender</option>
+                  <option value="type">Business type</option>
+                </select>
+              </div>
+            </div>
+            <p class="hint">
+              Leave start/end blank to use the lookback window. Date range affects Gmail; Mac Messages uses the closest matching lookback.
+            </p>
+            <pre id="brief-request-status" class="text-block small">No manual brief requested yet.</pre>
+          </section>
+
+          <section class="panel action-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Brief Progress</p>
+                <h2>Where the brief is coming from</h2>
+              </div>
+              <span id="brief-progress-state" class="status-pill status-ready">Checking</span>
+            </div>
+              <div id="brief-progress-panel" class="brief-progress-panel">
+                <div class="progress-track" aria-label="Brief progress">
+                <span class="progress-step" data-step="start">Start</span>
+                <span class="progress-step" data-step="messages">Messages</span>
+                <span class="progress-step" data-step="gmail">Gmail</span>
+                <span class="progress-step" data-step="classify">Triage</span>
+                <span class="progress-step" data-step="ai_refine">AI Read</span>
+                <span class="progress-step" data-step="review_links">Review Packets</span>
+                <span class="progress-step" data-step="build_brief">Build Brief</span>
+                <span class="progress-step" data-step="send_email">Save/Email</span>
+                <span class="progress-step" data-step="finished">Done</span>
+              </div>
+              <div id="brief-progress-detail" class="progress-detail">Checking local runner status...</div>
+              <div id="brief-progress-log" class="progress-log" aria-live="polite"></div>
+              <div class="next-action-list progress-source-list">
+                <span>Source: Mac-local scheduler for Messages plus Gmail API for email.</span>
+                <span>Hosted Netlify can show pages and links, but cannot read Apple Messages.</span>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="panel brief-preview-section">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Website Copy</p>
+              <h2>Latest generated brief</h2>
+            </div>
+            <div class="actions">
+              <button id="refresh-brief-preview" class="ghost">Refresh Preview</button>
+              <a id="open-brief-preview" class="button-link ghost" href="/api/daily-brief/latest.html" target="_blank" rel="noreferrer">Open Full Brief</a>
+            </div>
+          </div>
+          <p id="latest-brief-meta" class="hint">Run a preview or brief to keep the latest generated copy available here.</p>
+          <div id="latest-brief-empty" class="empty-state">
+            No saved brief preview found yet.
+          </div>
+          <iframe
+            id="latest-brief-frame"
+            class="brief-preview-frame"
+            title="Latest generated ClearEdge brief"
+            sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
+          ></iframe>
+        </section>
+
+        <section id="hidden-noise-panel" class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Gmail Cleanup</p>
+              <h2>Hidden noise emails</h2>
+            </div>
+            <div class="actions">
+              <button id="refresh-hidden-noise" class="ghost">Refresh Noise List</button>
+              <button id="trash-hidden-noise" class="ghost danger">Move Selected To Gmail Trash</button>
+            </div>
+          </div>
+          <p class="hint">
+            This only lists emails the latest brief classified as likely solicitations/newsletters. Moving to Gmail
+            Trash is reversible in Gmail, and nothing is deleted unless you select rows and confirm.
+          </p>
+          <div class="brief-control-grid">
+            <label class="inline-check">
+              <input id="select-all-hidden-noise" type="checkbox" />
+              Select all available hidden-noise emails
+            </label>
+          </div>
+          <p id="hidden-noise-status" class="hint">Loading hidden-noise list...</p>
+          <div id="hidden-noise-list" class="table-scroll"></div>
+        </section>
+
+        <section id="brief-controls-panel" class="panel controls">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Run Status</p>
+              <h2>Daily brief controls</h2>
+            </div>
+            <div class="actions">
+              <button id="refresh-brief-status" class="ghost">Refresh Status</button>
+            </div>
+          </div>
+          <div id="brief-run-status" class="stat-grid"></div>
+          <div class="brief-control-grid">
+            <div>
+              <label for="exclude-type">Do Not Include Type</label>
+              <select id="exclude-type">
+                <option value="domain">Domain</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+                <option value="keyword">Keyword</option>
+              </select>
+            </div>
+            <div>
+              <label for="exclude-value">Value</label>
+              <input id="exclude-value" type="text" placeholder="example.com, name@example.com, 8035551212, newsletter..." />
+            </div>
+            <div class="brief-control-action">
+              <button id="add-exclusion" class="ghost danger">Add Do Not Include</button>
+            </div>
+          </div>
+          <pre id="exclusion-list" class="text-block small">Loading exclusions...</pre>
+          <div class="result-section">
+            <h3>Unknown Contact Cleanup</h3>
+            <pre id="unknown-contacts" class="text-block small">Loading unknown contacts...</pre>
+          </div>
+        </section>
+
+        <section class="board-section panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Brief Review Queue</p>
+              <h2>How to use the emailed brief</h2>
+            </div>
+            <span class="muted-pill">Short links, no raw URLs</span>
+          </div>
+          <div class="table-scroll">
+            <table class="workflow-table">
+              <thead>
+                <tr>
+                  <th>Brief item</th>
+                  <th>Action</th>
+                  <th>Approval path</th>
+                  <th>Where it lands</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Needs reply today</strong><span>Customer, supplier, logistics, technical, internal.</span></td>
+                  <td>Decide next step in context</td>
+                  <td><span class="status-pill status-review">Review first</span></td>
+                  <td><a href="/review-submit.html">Review packet</a></td>
+                </tr>
+                <tr>
+                  <td><strong>ShelfCycle follow-through</strong><span>Notes, contacts, products, files, follow-ups.</span></td>
+                  <td>Approve or reject suggested action</td>
+                  <td><span class="status-pill status-review">Manual save</span></td>
+                  <td><a href="/review-submit.html">Local submit</a></td>
+                </tr>
+                <tr>
+                  <td><strong>Likely solicitations</strong><span>Noise collapsed by default.</span></td>
+                  <td>Exclude if needed</td>
+                  <td><span class="status-pill status-ready">Settings</span></td>
+                  <td><a href="#brief-controls-panel">Exclusion list</a></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

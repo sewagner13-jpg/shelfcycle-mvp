@@ -1,5 +1,7 @@
 const DEFAULT_MODEL = "gpt-5-mini";
 const MAX_THREADS = 24;
+const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_ACTIONABLE_STATES = Object.freeze(["needs_attention", "waiting_on_other_side"]);
 
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "");
@@ -73,9 +75,32 @@ function latestThreadExcerpts(item = {}) {
   }));
 }
 
-export function buildBriefAiPayload({ analyzedThreads = [], messageMemory = null, maxThreads = MAX_THREADS } = {}) {
+function shouldRefineThreadWithAi(item = {}, targetStates = DEFAULT_ACTIONABLE_STATES) {
+  if (item.relationship?.relationship === "solicitation") {
+    return false;
+  }
+
+  return targetStates.includes(item.state?.state);
+}
+
+function normalizeTargetStates(value = DEFAULT_ACTIONABLE_STATES) {
+  const states = Array.isArray(value) ? value : String(value || "").split(",");
+  const normalized = states
+    .map((state) => String(state).trim())
+    .filter(Boolean);
+
+  return normalized.length ? normalized : [...DEFAULT_ACTIONABLE_STATES];
+}
+
+export function buildBriefAiPayload({
+  analyzedThreads = [],
+  messageMemory = null,
+  maxThreads = MAX_THREADS,
+  targetStates = DEFAULT_ACTIONABLE_STATES
+} = {}) {
+  const actionableStates = normalizeTargetStates(targetStates);
   const candidates = analyzedThreads
-    .filter((item) => item.relationship?.relationship !== "solicitation")
+    .filter((item) => shouldRefineThreadWithAi(item, actionableStates))
     .slice(0, maxThreads)
     .map((item) => {
       const participant = firstExternalParticipant(item);
@@ -115,6 +140,7 @@ export function buildBriefAiPayload({ analyzedThreads = [], messageMemory = null
     company: "ClearEdge Solutions",
     operator: "Sean Wagner, president/owner responsible for sales, procurement, pricing, supplier/customer relationships, and ShelfCycle data quality",
     goal: "Rewrite the daily brief data as a concise owner/operator action dashboard. Focus on what Sean needs to decide, what matters commercially, and what could be worth entering into ShelfCycle after manual approval.",
+    aiSummaryScope: "Only threads classified as needs_attention (Needs Sean) or waiting_on_other_side (Waiting on others) are sent for AI rewriting.",
     safetyRules: [
       "Never imply records should be created automatically.",
       "ShelfCycle suggestions are candidates for Sean to review, not instructions to save.",
@@ -219,13 +245,19 @@ function outputSchema() {
 export function resolveBriefAiConfig(config = {}) {
   const apiKey = firstDefined(config.apiKey, process.env.OPENAI_API_KEY);
   const enabled = config.enabled ?? Boolean(apiKey);
+  const timeoutMs = Number.parseInt(
+    String(firstDefined(config.timeoutMs, process.env.OPENAI_BRIEF_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)),
+    10
+  ) || DEFAULT_TIMEOUT_MS;
 
   return {
     enabled: Boolean(enabled && apiKey),
     apiKey,
     model: firstDefined(config.model, process.env.OPENAI_BRIEF_MODEL, process.env.OPENAI_MODEL, DEFAULT_MODEL),
     endpoint: firstDefined(config.endpoint, process.env.OPENAI_RESPONSES_ENDPOINT, "https://api.openai.com/v1/responses"),
-    maxThreads: Number.parseInt(String(firstDefined(config.maxThreads, process.env.OPENAI_BRIEF_MAX_THREADS, MAX_THREADS)), 10) || MAX_THREADS
+    maxThreads: Number.parseInt(String(firstDefined(config.maxThreads, process.env.OPENAI_BRIEF_MAX_THREADS, MAX_THREADS)), 10) || MAX_THREADS,
+    targetStates: normalizeTargetStates(firstDefined(config.targetStates, process.env.OPENAI_BRIEF_TARGET_STATES, DEFAULT_ACTIONABLE_STATES)),
+    timeoutMs
   };
 }
 
@@ -236,33 +268,55 @@ export async function requestBriefAiRefinement({ payload, config = {}, fetchImpl
     return null;
   }
 
-  const response = await fetchImpl(resolved.endpoint, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${resolved.apiKey}`,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      model: resolved.model,
-      store: false,
-      instructions: [
-        "You are Sean Wagner's ClearEdge daily-brief analyst.",
-        "Think like the president of a specialty chemicals distributor: concise, commercially aware, skeptical of noise, and careful with CRM/ERP data quality.",
-        "Rewrite each thread into action-first language Sean can scan quickly.",
-        "When ShelfCycle is relevant, describe what Sean may want to review or enter after approval. Do not say it was created or should be created automatically.",
-        "Return only JSON matching the schema."
-      ].join("\n"),
-      input: JSON.stringify(payload),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "clearedge_brief_refinement",
-          strict: true,
-          schema: outputSchema()
+  const controller = typeof AbortController === "function" && resolved.timeoutMs > 0
+    ? new AbortController()
+    : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(), resolved.timeoutMs)
+    : null;
+
+  let response;
+
+  try {
+    response = await fetchImpl(resolved.endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${resolved.apiKey}`,
+        "content-type": "application/json"
+      },
+      signal: controller?.signal,
+      body: JSON.stringify({
+        model: resolved.model,
+        store: false,
+        instructions: [
+          "You are Sean Wagner's ClearEdge daily-brief analyst.",
+          "Think like the president of a specialty chemicals distributor: concise, commercially aware, skeptical of noise, and careful with CRM/ERP data quality.",
+          "Rewrite each thread into action-first language Sean can scan quickly.",
+          "When ShelfCycle is relevant, describe what Sean may want to review or enter after approval. Do not say it was created or should be created automatically.",
+          "Return only JSON matching the schema."
+        ].join("\n"),
+        input: JSON.stringify(payload),
+        text: {
+          format: {
+            type: "json_schema",
+            name: "clearedge_brief_refinement",
+            strict: true,
+            schema: outputSchema()
+          }
         }
-      }
-    })
-  });
+      })
+    });
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new Error(`OpenAI brief refinement timed out after ${resolved.timeoutMs}ms.`);
+    }
+
+    throw error;
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -328,7 +382,8 @@ export async function refineBriefWithAi({ analyzedThreads = [], messageMemory = 
   const payload = buildBriefAiPayload({
     analyzedThreads,
     messageMemory,
-    maxThreads: resolved.maxThreads
+    maxThreads: resolved.maxThreads,
+    targetStates: resolved.targetStates
   });
   const refinement = await requestBriefAiRefinement({ payload, config: resolved, fetchImpl });
   const applied = applyBriefAiRefinement({ analyzedThreads, messageMemory, refinement });

@@ -1,4 +1,5 @@
 import { loadReviewAction } from "./_shared/knowledge-store.mjs";
+import { collectExecutableActions, collectProposedActions } from "../../src/lib/shelfcycle-action-router.mjs";
 
 function sanitizeActionRecord(action = {}) {
   const { viewToken, ...safe } = action;
@@ -28,9 +29,15 @@ export default async (req) => {
     return new Response("Invalid review token.", { status: 403 });
   }
 
+  const proposedActions = collectProposedActions(action);
+
   return Response.json({
     ok: true,
-    action: sanitizeActionRecord(action)
+    action: {
+      ...sanitizeActionRecord(action),
+      proposedActions,
+      executableActions: collectExecutableActions(action)
+    }
   });
 };
 

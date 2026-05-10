@@ -293,9 +293,13 @@ function compactLine(item, { timeZone, locale }) {
   const gmail = gmailThreadUrl(item) ? ` | Gmail: ${gmailThreadUrl(item)}` : "";
   const messages = messagesThreadUrl(item) ? ` | Messages: ${messagesThreadUrl(item)}` : "";
   const review = item.reviewUrl ? ` | Review: ${item.reviewUrl}` : "";
+  const shelfCycleActions = executableShelfCycleLinks(item);
+  const shelfCycle = shelfCycleActions.length
+    ? ` | ShelfCycle Actions: ${shelfCycleActions.map((action) => `${action.label}: ${action.href}`).join(" ; ")}`
+    : "";
   const chatgpt = chatGptUrlForItem(item, nextStep) ? ` | Decide in ChatGPT: ${chatGptUrlForItem(item, nextStep)}` : "";
 
-  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}${chatgpt}`;
+  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}${shelfCycle}${chatgpt}`;
 }
 
 function sumRoleWorklists(items = [], role) {
@@ -705,11 +709,67 @@ function htmlList(items = []) {
   return `<ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul>`;
 }
 
+function actionLabelForShelfCycleLink(action = {}) {
+  return {
+    customer_note: "Add Note",
+    customer_create: "Create Customer",
+    supplier_create: "Create Supplier",
+    contact_create: "Create Contact",
+    pricing_record: "Add Pricing",
+    product_create_or_update: "Create Product",
+    product_document_followup: "Upload Document",
+    order_or_logistics_note: "Add Logistics Note"
+  }[action.actionType] || action.displayLabel || "ShelfCycle Action";
+}
+
+function reviewSubmitUrl(item = {}, action = {}) {
+  if (!item.reviewUrl || !action.id || !action.actionType) {
+    return "";
+  }
+
+  const url = new URL("http://localhost:4318/review-submit.html");
+  url.searchParams.set("reviewUrl", item.reviewUrl);
+  url.searchParams.set("section", action.actionType);
+  url.searchParams.set("actionId", action.id);
+  url.searchParams.set("actionType", action.actionType);
+  return url.href;
+}
+
+function executableShelfCycleLinks(item = {}) {
+  const proposedActions = [
+    ...(item.proposedActions ?? []),
+    ...(item.reviewAction?.proposedActions ?? [])
+  ];
+  const seen = new Set();
+  const links = [];
+
+  for (const action of proposedActions) {
+    if (!action?.executable || seen.has(action.id)) {
+      continue;
+    }
+
+    const href = reviewSubmitUrl(item, action);
+
+    if (!href) {
+      continue;
+    }
+
+    seen.add(action.id);
+    links.push({
+      label: actionLabelForShelfCycleLink(action),
+      href
+    });
+  }
+
+  return links;
+}
+
 function actionLinks(item = {}, nextStep = "") {
   const links = [
     { label: "Gmail", href: gmailThreadUrl(item) },
     { label: "Messages", href: messagesThreadUrl(item) },
     { label: "Review Packet", href: item.reviewUrl },
+    ...executableShelfCycleLinks(item),
     { label: "Decide in ChatGPT", href: chatGptUrlForItem(item, nextStep) }
   ];
   const seen = new Set();
@@ -779,6 +839,170 @@ function groupByActionType(items = []) {
   }
 
   return groups;
+}
+
+function normalizeBriefGroupBy(value = "") {
+  return ["action", "company", "sender", "type"].includes(value) ? value : "action";
+}
+
+function candidateLabelFromMatches(matches = {}, keys = []) {
+  for (const key of keys) {
+    for (const match of matches[key] ?? []) {
+      const candidate = match?.candidate ?? match;
+      const label = candidate?.name || candidate?.customerName || candidate?.supplierName || candidate?.companyName || candidate?.email;
+
+      if (label) {
+        return label;
+      }
+    }
+  }
+
+  return "";
+}
+
+function companyLabel(item = {}) {
+  const participant = firstExternalParticipant(item);
+  const matchedCompany = candidateLabelFromMatches(item.analysis?.matches ?? {}, [
+    "customer",
+    "customers",
+    "supplier",
+    "suppliers",
+    "contacts"
+  ]);
+  const suggestedCompany = (item.analysis?.suggestedCreates ?? [])
+    .map((entry) => entry.companyName || entry.customerName || entry.supplierName || entry.name)
+    .find(Boolean);
+  const selectedTarget = item.reviewAction?.selectedTarget?.label || item.selectedTarget?.label;
+
+  return selectedTarget || matchedCompany || suggestedCompany || participant?.companyName || participant?.domain || participant?.email || "Unknown company";
+}
+
+function senderLabel(item = {}) {
+  const participant = firstExternalParticipant(item);
+  return participant?.name || participant?.email || participant?.domain || "Unknown sender";
+}
+
+function businessType(item = {}) {
+  const category = actionType(item);
+  const relationship = item.relationship?.relationship;
+
+  if (category === "Documents / Compliance") {
+    return "Product Info / Documents";
+  }
+
+  if (category === "Orders / POs to Confirm") {
+    return "Orders / POs";
+  }
+
+  if (category === "Pricing / Quote Decisions") {
+    return "Pricing / Quotes";
+  }
+
+  if (category === "Shipment / Logistics") {
+    return "Shipment / Logistics";
+  }
+
+  if (category === "Payments / Invoices") {
+    return "Payments / Invoices";
+  }
+
+  if (relationship === "customer") {
+    return "Customer Inquiry";
+  }
+
+  if (relationship === "supplier") {
+    return "Supplier Communication";
+  }
+
+  return "Follow-Ups";
+}
+
+function groupLabelForItem(item = {}, groupBy = "action") {
+  if (groupBy === "company") {
+    return companyLabel(item);
+  }
+
+  if (groupBy === "sender") {
+    return senderLabel(item);
+  }
+
+  if (groupBy === "type") {
+    return businessType(item);
+  }
+
+  return actionType(item);
+}
+
+function groupItems(items = [], groupBy = "action") {
+  const groups = new Map();
+
+  for (const item of items) {
+    const label = groupLabelForItem(item, groupBy);
+
+    if (!groups.has(label)) {
+      groups.set(label, []);
+    }
+
+    groups.get(label).push(item);
+  }
+
+  return groups;
+}
+
+function groupOrder(groupBy = "action") {
+  if (groupBy === "type") {
+    return [
+      "Orders / POs",
+      "Pricing / Quotes",
+      "Product Info / Documents",
+      "Payments / Invoices",
+      "Shipment / Logistics",
+      "Customer Inquiry",
+      "Supplier Communication",
+      "Follow-Ups"
+    ];
+  }
+
+  if (groupBy === "action") {
+    return [
+      "Orders / POs to Confirm",
+      "Pricing / Quote Decisions",
+      "Documents / Compliance",
+      "Payments / Invoices",
+      "Shipment / Logistics",
+      "Follow-Ups"
+    ];
+  }
+
+  return [];
+}
+
+function sortedGroupNames(groups = new Map(), groupBy = "action") {
+  const preferred = groupOrder(groupBy);
+  const names = [...groups.keys()];
+  const ordered = preferred.filter((name) => groups.has(name));
+  const remainder = names
+    .filter((name) => !preferred.includes(name))
+    .sort((left, right) => left.localeCompare(right));
+
+  return [...ordered, ...remainder];
+}
+
+function briefGroupByLabel(value = "action") {
+  return {
+    action: "Action type",
+    company: "Company",
+    sender: "Sender",
+    type: "Business type"
+  }[value] || "Action type";
+}
+
+function dateRangeLabel({ hours = "", since = "", until = "" } = {}) {
+  if (since || until) {
+    return `${since || "default start"} to ${until || "now"}`;
+  }
+
+  return hours ? `last ${hours} hour(s)` : "";
 }
 
 function formatSnapshot({
@@ -949,9 +1173,12 @@ function buildActionDailyBrief({
   title = "Daily ClearEdge Communications Brief",
   messageMemory = null,
   generatedAt = new Date().toISOString(),
+  groupBy = "action",
+  dateRange = {},
   timeZone = "America/New_York",
   locale = "en-US"
 } = {}) {
+  const resolvedGroupBy = normalizeBriefGroupBy(groupBy);
   const sorted = sortByPriorityAndTime(analyzedThreads);
   const needsAttention = sorted.filter(
     (item) =>
@@ -974,15 +1201,9 @@ function buildActionDailyBrief({
   const topActions = queueItems.slice(0, 5);
   const topActionSet = new Set(topActions);
   const waitingRemainder = waitingOnOthers.filter((item) => !topActionSet.has(item));
-  const grouped = groupByActionType(topActions);
-  const preferredOrder = [
-    "Orders / POs to Confirm",
-    "Pricing / Quote Decisions",
-    "Documents / Compliance",
-    "Payments / Invoices",
-    "Shipment / Logistics",
-    "Follow-Ups"
-  ];
+  const grouped = groupItems(topActions, resolvedGroupBy);
+  const orderedGroupNames = sortedGroupNames(grouped, resolvedGroupBy);
+  const rangeLabel = dateRangeLabel(dateRange);
   const ownerActions = sumRoleWorklists(sorted, "owner");
   const salesActions = sumRoleWorklists(sorted, "sales");
   const procurementActions = sumRoleWorklists(sorted, "procurement");
@@ -1023,13 +1244,14 @@ function buildActionDailyBrief({
     `<header class="brief-header">`,
     `<h1>${escapeHtml(title)}</h1>`,
     `<p><strong>${escapeHtml(organization)}</strong> · ${escapeHtml(dateLabel)}</p>`,
+    `<p class="muted">Organized by ${escapeHtml(briefGroupByLabel(resolvedGroupBy))}${rangeLabel ? ` · Range: ${escapeHtml(rangeLabel)}` : ""}</p>`,
     `</header>`,
     "<h2>Snapshot</h2>",
     formatSnapshot({ needsAttention, waitingOnOthers, internal, solicitations, messageMemory, sorted }),
     "<h2>Top Actions</h2>"
   ];
 
-  for (const groupName of preferredOrder) {
+  for (const groupName of orderedGroupNames) {
     const items = grouped.get(groupName) ?? [];
 
     if (!items.length) {

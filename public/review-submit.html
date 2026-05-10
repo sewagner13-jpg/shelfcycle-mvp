@@ -7,70 +7,136 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell review-shell">
-      <section class="hero">
-        <p class="eyebrow">Local ShelfCycle Submit</p>
-        <h1 id="submit-title">Load a review packet</h1>
-        <p id="submit-lede" class="lede">
-          This page runs locally and only submits to ShelfCycle after you approve the exact action.
-        </p>
-      </section>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="ClearEdge modules">
+        <div class="brand">
+          <div class="brand-mark">CE</div>
+          <div>
+            <strong>ClearEdge OS</strong>
+            <span>Local Submit</span>
+          </div>
+        </div>
+        <nav class="module-nav">
+          <a class="module-link" href="/">Home</a>
+          <a class="module-link" href="/briefs.html">Briefs</a>
+          <a class="module-link" href="/product-intake.html">SDS/TDS Intake</a>
+          <a class="module-link" href="/business-card.html">Business Cards</a>
+          <a class="module-link active" href="/review-action.html">Review Landing</a>
+          <a class="module-link" href="/settings.html">Settings</a>
+        </nav>
+        <div class="sidebar-note">
+          <span class="status-dot"></span>
+          This local page only submits to ShelfCycle after explicit approval.
+        </div>
+      </aside>
 
-      <section class="panel controls">
-        <div class="panel-header">
-          <h2>Review Packet</h2>
-          <div class="actions">
+      <main class="app-main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local ShelfCycle Submit</p>
+            <h1 id="submit-title">Load a review packet</h1>
+            <p id="submit-lede" class="lede">
+              Use this local approval step when a brief recommends creating a ShelfCycle note or record.
+            </p>
+          </div>
+          <div class="topbar-actions">
             <button id="load-review" class="ghost">Load Review Packet</button>
             <button id="open-session" class="ghost">Open ShelfCycle Session</button>
-            <button id="submit-note" class="primary">Approve And Create Note</button>
+            <button id="submit-note" class="primary">Approve And Run ShelfCycle Agent</button>
           </div>
-        </div>
-        <label for="review-url">Review packet URL</label>
-        <input id="review-url" type="url" placeholder="https://clearedge-daily-brief.netlify.app/review-action.html?id=...&token=..." />
-        <pre id="submit-status" class="text-block"></pre>
-      </section>
+        </header>
 
-      <section class="workspace review-workspace">
-        <div class="panel output-panel">
-          <div class="result-section">
-            <h3>Action Summary</h3>
-            <pre id="action-summary" class="text-block tall"></pre>
+        <section class="panel controls">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Review Packet</p>
+              <h2>Approval source</h2>
+            </div>
+            <span class="status-pill status-review">Manual approval</span>
+          </div>
+          <label for="review-url">Review packet URL</label>
+          <input id="review-url" type="url" placeholder="https://clearedge-daily-brief.netlify.app/review-action.html?id=...&token=..." />
+          <pre id="submit-status" class="text-block"></pre>
+        </section>
+
+        <section class="record-page">
+          <div class="record-main panel">
+            <div class="record-header">
+              <div>
+                <p class="section-kicker">Action Summary</p>
+                <h2>What would be created</h2>
+                <div class="record-meta">
+                  <span>Target: ShelfCycle</span>
+                  <span>Mode: Local approval</span>
+                  <span>Default: No write</span>
+                </div>
+              </div>
+              <span class="status-pill status-review">Verify first</span>
+            </div>
+
+            <div class="output-grid review-output-grid">
+              <div class="result-section output-wide">
+                <h3>ShelfCycle Form Preview</h3>
+                <div id="shelfcycle-form-preview" class="shelfcycle-preview-stack"></div>
+                <details class="technical-details visually-secondary">
+                  <summary>Packet details</summary>
+                  <pre id="action-summary" class="text-block tall"></pre>
+                </details>
+              </div>
+
+              <div class="result-section">
+                <h3>Executable Actions</h3>
+                <pre id="executable-actions" class="text-block"></pre>
+              </div>
+
+              <div class="result-section output-wide">
+                <h3>Approved Action Fields</h3>
+                <div id="action-fields" class="shelfcycle-field-grid"></div>
+              </div>
+
+              <div class="result-section">
+                <h3>Warnings</h3>
+                <pre id="submit-warnings" class="text-block"></pre>
+              </div>
+
+              <div class="result-section output-wide">
+                <h3>ShelfCycle Note Target</h3>
+                <div id="note-target-card" class="shelfcycle-preview-stack"></div>
+                <pre id="note-target" class="text-block tall visually-secondary"></pre>
+              </div>
+            </div>
           </div>
 
-          <div class="result-section">
-            <h3>Executable Actions</h3>
-            <pre id="executable-actions" class="text-block"></pre>
-          </div>
+          <aside class="record-side panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Submit Details</p>
+                <h2>Approval status</h2>
+              </div>
+              <span class="muted-pill">Approval gate</span>
+            </div>
 
-          <div class="result-section">
-            <h3>ShelfCycle Note Target</h3>
-            <pre id="note-target" class="text-block tall"></pre>
-          </div>
-
-          <div class="result-section">
-            <h3>Write Plan</h3>
-            <pre id="submit-write-plan" class="text-block"></pre>
-          </div>
-        </div>
-
-        <div class="panel output-panel">
-          <div class="result-section">
-            <h3>Draft Note</h3>
-            <pre id="submit-draft-note" class="text-block tall"></pre>
-          </div>
-
-          <div class="result-section">
-            <h3>Warnings</h3>
-            <pre id="submit-warnings" class="text-block"></pre>
-          </div>
-
-          <div class="result-section">
-            <h3>Submission Result</h3>
-            <pre id="submit-result" class="text-block tall"></pre>
-          </div>
-        </div>
-      </section>
-    </main>
+            <div class="activity-feed">
+              <div class="activity-item">
+                <strong>Submission Result</strong>
+                <pre id="submit-result" class="text-block tall"></pre>
+              </div>
+              <details class="technical-details">
+                <summary>Technical packet data</summary>
+                <div class="activity-item">
+                  <strong>Draft Note</strong>
+                  <pre id="submit-draft-note" class="text-block tall"></pre>
+                </div>
+                <div class="activity-item">
+                  <strong>Write Plan</strong>
+                  <pre id="submit-write-plan" class="text-block"></pre>
+                </div>
+              </details>
+            </div>
+          </aside>
+        </section>
+      </main>
+    </div>
 
     <script type="module" src="/review-submit.js"></script>
   </body>

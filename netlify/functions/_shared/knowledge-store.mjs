@@ -1,4 +1,4 @@
-import { getDeployStore, getStore } from "@netlify/blobs";
+import { getStore } from "@netlify/blobs";
 
 const STORE_NAME = "clearedge-shared";
 const KNOWLEDGE_KEY = "knowledge-bundle.json";
@@ -6,16 +6,10 @@ const LAST_BRIEF_KEY = "latest-daily-brief.txt";
 const SETTINGS_KEY = "brief-settings.json";
 const REVIEW_ACTION_PREFIX = "review-actions";
 
-function isProductionContext() {
-  return process.env.CONTEXT === "production" || process.env.DEPLOY_PRIME_URL === process.env.URL;
-}
-
 function getScopedStore() {
-  if (isProductionContext()) {
-    return getStore(STORE_NAME, { consistency: "strong" });
-  }
-
-  return getDeployStore(STORE_NAME, { consistency: "strong" });
+  // Use the site-wide store for operational data that must survive manual
+  // deploys, including Gmail/OpenAI settings and review packets.
+  return getStore(STORE_NAME, { consistency: "strong" });
 }
 
 export async function saveKnowledgeBundle(bundle) {

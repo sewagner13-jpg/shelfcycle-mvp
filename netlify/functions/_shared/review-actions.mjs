@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { saveReviewAction } from "./knowledge-store.mjs";
-import { collectExecutableActions } from "../../../src/lib/shelfcycle-submit.mjs";
+import { collectExecutableActions, collectProposedActions } from "../../../src/lib/shelfcycle-action-router.mjs";
 
 function isCoreBusinessThread(item = {}) {
   return (
@@ -105,13 +105,20 @@ function collectAvailableActions(item = {}) {
   return actions;
 }
 
+function sanitizeActionRecord(action = {}) {
+  const { viewToken, ...safe } = action;
+  return safe;
+}
+
 function createActionRecord(item = {}) {
-  return {
+  const actionRecord = {
     id: randomUUID(),
     viewToken: randomUUID(),
     createdAt: new Date().toISOString(),
     threadId: item.threadId,
     subject: item.subject || "",
+    workflow: item.analysis?.workflow || item.workflow || "",
+    fields: item.analysis?.fields ?? item.fields ?? {},
     relationship: item.relationship ?? {},
     silo: item.silo ?? {},
     state: item.state ?? {},
@@ -136,6 +143,12 @@ function createActionRecord(item = {}) {
       driveError: ""
     }
   };
+
+  return {
+    ...actionRecord,
+    proposedActions: collectProposedActions(actionRecord),
+    executableActions: collectExecutableActions(actionRecord)
+  };
 }
 
 function toReviewUrl(siteUrl = "", action = {}) {
@@ -157,7 +170,10 @@ export async function attachReviewActions(analyzedThreads = [], { siteUrl } = {}
 
     enhanced.push({
       ...item,
-      reviewUrl: toReviewUrl(siteUrl, actionRecord)
+      reviewUrl: toReviewUrl(siteUrl, actionRecord),
+      reviewAction: sanitizeActionRecord(actionRecord),
+      proposedActions: actionRecord.proposedActions,
+      executableActions: actionRecord.executableActions
     });
   }
 

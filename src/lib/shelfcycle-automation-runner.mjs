@@ -1,4 +1,14 @@
-import { openShelfCycleSessionForLogin, submitShelfCycleNote, loadSubmissionPayload } from "./shelfcycle-automation.mjs";
+import {
+  openShelfCycleSessionForLogin,
+  submitShelfCycleContact,
+  submitShelfCycleCustomer,
+  submitShelfCycleNote,
+  submitShelfCyclePriceBookEntry,
+  submitShelfCycleProductCode,
+  submitShelfCycleProductDocument,
+  submitShelfCycleSupplier,
+  loadSubmissionPayload
+} from "./shelfcycle-automation.mjs";
 
 function parseArgs(argv = []) {
   const [command = "", ...rest] = argv;
@@ -32,18 +42,36 @@ async function main() {
     return;
   }
 
-  if (args.command === "create-note") {
+  if (args.command === "create-note" || args.command === "execute-action") {
     if (!args.payload) {
-      throw new Error("Missing --payload path for create-note.");
+      throw new Error(`Missing --payload path for ${args.command}.`);
     }
 
     const payload = await loadSubmissionPayload(args.payload);
-    const result = await submitShelfCycleNote(payload);
+
+    const executors = {
+      customer_note: submitShelfCycleNote,
+      supplier_note: submitShelfCycleNote,
+      order_or_logistics_note: submitShelfCycleNote,
+      customer_create: submitShelfCycleCustomer,
+      supplier_create: submitShelfCycleSupplier,
+      contact_create: submitShelfCycleContact,
+      pricing_record: submitShelfCyclePriceBookEntry,
+      product_create_or_update: submitShelfCycleProductCode,
+      product_document_followup: submitShelfCycleProductDocument
+    };
+    const executor = args.command === "create-note" ? submitShelfCycleNote : executors[payload.actionType];
+
+    if (!executor) {
+      throw new Error(`Unsupported ShelfCycle action type: ${payload.actionType || "unknown"}.`);
+    }
+
+    const result = await executor(payload);
     console.log(JSON.stringify(result));
     return;
   }
 
-  throw new Error("Usage: node src/lib/shelfcycle-automation-runner.mjs <login|create-note> [--payload file.json]");
+  throw new Error("Usage: node src/lib/shelfcycle-automation-runner.mjs <login|create-note|execute-action> [--payload file.json]");
 }
 
 main().catch((error) => {

@@ -1,4 +1,5 @@
 import { compactWhitespace, extractDomain, isLikelyCompanyName, uniqueStrings } from "./normalize.mjs";
+import { normalizeCustomerCreateFields } from "./shelfcycle-customer-requirements.mjs";
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const PHONE_RE = /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s./-]?)\d{3}[\s./-]?\d{4}(?:\s*(?:x|ext\.?)\s*\d+)?/gi;
@@ -29,17 +30,18 @@ export function parseCustomerInput(text = "") {
   }
 
   const addressBlock = lines.filter((line) => /^\d+\s+/.test(line) || /\d{5}/.test(line)).join(", ");
+  const fields = normalizeCustomerCreateFields({
+    name,
+    email: emails[0] ?? "",
+    website: websites[0] ?? "",
+    phoneNumber: phones[0] ?? "",
+    address: addressBlock,
+    prospect: /\bprospect\b/i.test(text)
+  });
 
   return {
     workflow: "new_customer",
-    fields: {
-      name,
-      email: emails[0] ?? "",
-      website: websites[0] ?? "",
-      phone: phones[0] ?? "",
-      address: addressBlock,
-      prospect: /\bprospect\b/i.test(text)
-    },
+    fields,
     rawExtracts: {
       emails,
       phones,

@@ -121,21 +121,66 @@ async function gmailRequest(endpoint, { method = "GET", query = {}, body, config
   });
 }
 
-function gmailDateQuery(hours = 24) {
-  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
-  const yyyy = since.getUTCFullYear();
-  const mm = String(since.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(since.getUTCDate()).padStart(2, "0");
-  return `after:${yyyy}/${mm}/${dd}`;
+function parseDate(value = "") {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function gmailSearchDate(date = new Date()) {
+  const yyyy = date.getUTCFullYear();
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  return `${yyyy}/${mm}/${dd}`;
+}
+
+function gmailDateQuery({ hours = 24, since = "", until = "" } = {}) {
+  const sinceDate = parseDate(since) ?? new Date(Date.now() - hours * 60 * 60 * 1000);
+  const untilDate = parseDate(until);
+  const parts = [`after:${gmailSearchDate(sinceDate)}`];
+
+  if (untilDate) {
+    const before = new Date(untilDate);
+    before.setUTCDate(before.getUTCDate() + 1);
+    parts.push(`before:${gmailSearchDate(before)}`);
+  }
+
+  return parts.join(" ");
+}
+
+function messageInRange(message = {}, { since = "", until = "" } = {}) {
+  const timestamp = Number(message.internalDate || 0);
+  const sinceDate = parseDate(since);
+  const untilDate = parseDate(until);
+
+  if (!timestamp) {
+    return true;
+  }
+
+  if (sinceDate && timestamp < sinceDate.getTime()) {
+    return false;
+  }
+
+  if (untilDate && timestamp > untilDate.getTime()) {
+    return false;
+  }
+
+  return true;
 }
 
 export async function fetchRecentThreads({
   hours = 24,
   maxMessages = 200,
+  since = "",
+  until = "",
   query = "",
   config
 } = {}) {
-  const q = [gmailDateQuery(hours), query].filter(Boolean).join(" ");
+  const range = { since, until };
+  const q = [gmailDateQuery({ hours, since, until }), query].filter(Boolean).join(" ");
   const messageList = await gmailRequest("messages", {
     query: {
       maxResults: maxMessages,
@@ -154,7 +199,14 @@ export async function fetchRecentThreads({
       },
       config
     });
-    threads.push(thread);
+    if (!since && !until) {
+      threads.push(thread);
+      continue;
+    }
+
+    if ((thread.messages ?? []).some((message) => messageInRange(message, range))) {
+      threads.push(thread);
+    }
   }
 
   return threads;
@@ -175,6 +227,27 @@ export async function sendEmail({ to, subject, body = "", html = "", config }) {
     body: {
       raw: base64UrlEncode(mime)
     },
+    config
+  });
+}
+
+export async function fetchGmailAttachmentData({ messageId = "", attachmentId = "", config } = {}) {
+  if (!messageId || !attachmentId) {
+    throw new Error("Missing Gmail message id or attachment id.");
+  }
+
+  return gmailRequest(`messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`, {
+    config
+  });
+}
+
+export async function trashGmailThread({ threadId = "", config } = {}) {
+  if (!threadId) {
+    throw new Error("Missing Gmail thread id.");
+  }
+
+  return gmailRequest(`threads/${encodeURIComponent(threadId)}/trash`, {
+    method: "POST",
     config
   });
 }

@@ -610,6 +610,77 @@ test("buildDailyBrief omits the ClearEdge Intelligence coverage section when the
   assert.ok(!brief.includes("Reconcile with Intelligence"));
 });
 
+test("buildDailyBrief can group top actions by company and business type", () => {
+  const analyzedThreads = [
+    {
+      relationship: { relationship: "customer", subtype: "core_customer" },
+      silo: { name: "commercial" },
+      state: { state: "needs_attention" },
+      priorityScore: 95,
+      lastTimestamp: Date.UTC(2026, 4, 6, 10, 0, 0),
+      subject: "PO 12345 - G301",
+      externalParticipants: [{ name: "Courtney Quinn", email: "cquinn@suncoatings.example", domain: "suncoatings.example" }],
+      reviewUrl: "http://localhost:4318/review-action.html?id=abc&token=def",
+      proposedActions: [
+        {
+          id: "abc-customer_create",
+          actionType: "customer_create",
+          displayLabel: "Create customer in ShelfCycle",
+          executable: true,
+          fieldValues: { name: "Sun Coatings" }
+        }
+      ],
+      analysis: {
+        matches: { customer: [{ candidate: { name: "Sun Coatings" } }] },
+        rawExtracts: { keyPoints: ["Customer sent PO 12345 for G301."] },
+        roleWorklists: { owner: [], sales: [], procurement: [] },
+        suggestedCreates: [],
+        warnings: [],
+        draftNote: { title: "2026-05-06 - PO 12345 - G301", summary: "Customer sent PO 12345 for G301." }
+      }
+    },
+    {
+      relationship: { relationship: "supplier", subtype: "core_supplier" },
+      silo: { name: "compliance" },
+      state: { state: "needs_attention" },
+      priorityScore: 90,
+      lastTimestamp: Date.UTC(2026, 4, 6, 9, 0, 0),
+      subject: "SDS for RUCOLAC B-321",
+      externalParticipants: [{ name: "Jason Netherton", email: "jason@accessrudolftech.com", domain: "accessrudolftech.com" }],
+      analysis: {
+        matches: { supplier: [{ candidate: { name: "ACCESS Rudolf Technologies" } }] },
+        rawExtracts: { keyPoints: ["Supplier sent SDS for RUCOLAC B-321."] },
+        roleWorklists: { owner: [], sales: [], procurement: [] },
+        suggestedCreates: [],
+        warnings: [],
+        draftNote: { title: "2026-05-06 - SDS for RUCOLAC B-321", summary: "Supplier sent SDS for RUCOLAC B-321." }
+      }
+    }
+  ];
+
+  const byCompany = buildDailyBrief({
+    analyzedThreads,
+    organization: "ClearEdge Solutions",
+    groupBy: "company",
+    dateRange: { hours: 72 }
+  });
+  const byType = buildDailyBrief({
+    analyzedThreads,
+    organization: "ClearEdge Solutions",
+    groupBy: "type"
+  });
+
+  assert.ok(byCompany.includes("Organized by Company"));
+  assert.ok(byCompany.includes("Range: last 72 hour(s)"));
+  assert.ok(byCompany.includes("<h3>Sun Coatings</h3>"));
+  assert.ok(byCompany.includes("<h3>ACCESS Rudolf Technologies</h3>"));
+  assert.ok(byCompany.includes("Create Customer"));
+  assert.ok(byCompany.includes("review-submit.html"));
+  assert.ok(byType.includes("Organized by Business type"));
+  assert.ok(byType.includes("<h3>Orders / POs</h3>"));
+  assert.ok(byType.includes("<h3>Product Info / Documents</h3>"));
+});
+
 test("buildDailyBrief appends a Message Memory section when provided", () => {
   const brief = buildDailyBrief({
     organization: "ClearEdge Solutions",

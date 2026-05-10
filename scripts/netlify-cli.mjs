@@ -11,6 +11,8 @@ const toolingRoot = path.join(projectRoot, ".tooling");
 const npmRoot = path.join(toolingRoot, "npm");
 const cliRoot = path.join(toolingRoot, "netlify-cli");
 const npmPackageDir = path.join(npmRoot, "package");
+const DEFAULT_DEPLOY_DIR = "public";
+const DEFAULT_FUNCTIONS_DIR = "netlify/functions";
 
 function log(message) {
   process.stderr.write(`${message}\n`);
@@ -133,9 +135,47 @@ async function ensureNetlifyCli() {
   return path.join(cliRoot, "node_modules", "netlify-cli", binEntry);
 }
 
+function hasArg(args, name) {
+  return args.includes(name) || args.some((arg) => arg.startsWith(`${name}=`));
+}
+
+function normalizeArgs(args = []) {
+  if (args[0] !== "deploy") {
+    return args;
+  }
+
+  const useBuild = hasArg(args, "--use-build") || process.env.CLEAREDGE_NETLIFY_USE_BUILD === "1";
+  const nextArgs = args.filter((arg) => arg !== "--use-build");
+  const isHelp = hasArg(nextArgs, "--help") || hasArg(nextArgs, "-h");
+  const isTriggerOnly = hasArg(nextArgs, "--trigger");
+
+  if (useBuild || isHelp || isTriggerOnly) {
+    return nextArgs;
+  }
+
+  const normalized = [...nextArgs];
+
+  if (!hasArg(normalized, "--no-build")) {
+    normalized.push("--no-build");
+  }
+
+  if (!hasArg(normalized, "--dir") && !hasArg(normalized, "-d")) {
+    normalized.push("--dir", DEFAULT_DEPLOY_DIR);
+  }
+
+  if (!hasArg(normalized, "--functions") && !hasArg(normalized, "-f")) {
+    normalized.push("--functions", DEFAULT_FUNCTIONS_DIR);
+  }
+
+  log(`Using ClearEdge static deploy defaults: --no-build --dir ${DEFAULT_DEPLOY_DIR} --functions ${DEFAULT_FUNCTIONS_DIR}`);
+  log("Pass --use-build or set CLEAREDGE_NETLIFY_USE_BUILD=1 only when a Netlify Build run is intentionally required.");
+
+  return normalized;
+}
+
 async function main() {
   const cliEntry = await ensureNetlifyCli();
-  const args = process.argv.slice(2);
+  const args = normalizeArgs(process.argv.slice(2));
 
   if (!args.length) {
     log("Usage: node scripts/netlify-cli.mjs <netlify args...>");

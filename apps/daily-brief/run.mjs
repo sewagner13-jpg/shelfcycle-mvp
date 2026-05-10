@@ -2,7 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { runAutoBrief } from "../../src/lib/auto-brief.mjs";
+import { attachLocalReviewActions } from "../../src/lib/local-review-actions.mjs";
 import { loadMessagesMemoryConfig } from "../../src/lib/messages-memory-config.mjs";
+
+const projectRoot = path.resolve(new URL("../..", import.meta.url).pathname);
+const defaultReviewActionsDir = path.join(projectRoot, ".local", "review-actions");
 
 function parseArgs(argv = []) {
   const args = {
@@ -18,6 +22,8 @@ function parseArgs(argv = []) {
     aiBrief: null,
     aiBriefModel: "",
     briefFormat: "action_cards",
+    reviewActionsDir: defaultReviewActionsDir,
+    reviewBaseUrl: "http://localhost:4318",
     messagesDb: "",
     messagesMemoryConfig: "",
     settings: "",
@@ -148,6 +154,20 @@ function parseArgs(argv = []) {
       args.briefFormat = argv[index + 1] || "action_cards";
       args.provided.add("briefFormat");
       index += 1;
+      continue;
+    }
+
+    if (value === "--review-actions-dir") {
+      args.reviewActionsDir = argv[index + 1] || defaultReviewActionsDir;
+      args.provided.add("reviewActionsDir");
+      index += 1;
+      continue;
+    }
+
+    if (value === "--review-base-url") {
+      args.reviewBaseUrl = argv[index + 1] || "http://localhost:4318";
+      args.provided.add("reviewBaseUrl");
+      index += 1;
     }
   }
 
@@ -197,7 +217,12 @@ async function main() {
         }
       : {},
     timeZone: value("timeZone", args.timeZone),
-    locale: value("locale", args.locale)
+    locale: value("locale", args.locale),
+    decorateAnalyzedThreads: (analyzedThreads) =>
+      attachLocalReviewActions(analyzedThreads, {
+        storageDir: path.resolve(value("reviewActionsDir", args.reviewActionsDir)),
+        baseUrl: value("reviewBaseUrl", args.reviewBaseUrl)
+      })
   });
 
   if (args.out) {

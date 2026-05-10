@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ClearEdge Backend Handoff Packet</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1f2a37;
+        --muted: #667085;
+        --line: #d0d5dd;
+        --soft: #f8fafc;
+        --accent: #175cd3;
+        --warn: #b54708;
+        --bad: #b42318;
+        --good: #067647;
+      }
+
+      body {
+        margin: 0;
+        background: #eef2f6;
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+
+      article {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        box-shadow: 0 18px 50px rgb(31 42 55 / 0.08);
+        overflow: hidden;
+      }
+
+      header {
+        padding: 28px 32px;
+        background: linear-gradient(135deg, #102a43, #175cd3);
+        color: white;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.2;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(28px, 4vw, 42px);
+        letter-spacing: -0.04em;
+      }
+
+      h2 {
+        margin-top: 36px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+        font-size: 24px;
+      }
+
+      h3 {
+        margin-top: 22px;
+        font-size: 18px;
+      }
+
+      p,
+      li {
+        font-size: 15px;
+      }
+
+      .subtitle {
+        max-width: 760px;
+        margin: 10px 0 0;
+        color: rgb(255 255 255 / 0.82);
+      }
+
+      .content {
+        padding: 28px 32px 40px;
+      }
+
+      .callout {
+        border: 1px solid var(--line);
+        border-left: 5px solid var(--accent);
+        background: var(--soft);
+        border-radius: 12px;
+        padding: 16px 18px;
+        margin: 20px 0;
+      }
+
+      .danger {
+        border-left-color: var(--bad);
+      }
+
+      .warning {
+        border-left-color: var(--warn);
+      }
+
+      .success {
+        border-left-color: var(--good);
+      }
+
+      code {
+        background: #f2f4f7;
+        border: 1px solid #eaecf0;
+        border-radius: 6px;
+        padding: 2px 5px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.9em;
+      }
+
+      pre {
+        overflow-x: auto;
+        background: #101828;
+        color: #f2f4f7;
+        border-radius: 12px;
+        padding: 16px;
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 14px 0 24px;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f2f4f7;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      @media (max-width: 720px) {
+        header,
+        .content {
+          padding: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <header>
+          <h1>ClearEdge Backend Handoff Packet</h1>
+          <p class="subtitle">Backend-oriented project context for an agent reviewing the ShelfCycle MVP, daily brief pipeline, local Mac Messages integration, Gmail triage, and verified ShelfCycle action flow.</p>
+        </header>
+
+        <div class="content">
+          <p class="muted">Prepared from the current working session on May 5, 2026. This packet intentionally contains no OAuth tokens, API keys, Gmail content, or private message bodies.</p>
+
+          <div class="callout danger">
+            <strong>Primary backend problem:</strong> the app can generate review packets and preview ShelfCycle actions, but real ShelfCycle execution is incomplete. Recent health check showed <code>72</code> review packets and <code>0</code> executable actions because the backend only supports a narrow customer-note path when a single matched ShelfCycle customer ID is available.
+          </div>
+
+          <h2>1. Product Goal</h2>
+          <p>Build a ClearEdge operating assistant that reads Gmail and Mac-local Messages, summarizes business-relevant activity, identifies next actions, and lets Sean verify any proposed ShelfCycle write before it is saved. The system should consolidate information and triage work, not generate replies automatically.</p>
+
+          <h3>Non-negotiable behavior</h3>
+          <ul>
+            <li>Do not create ShelfCycle records without explicit user review and approval.</li>
+            <li>Do not write to Apple Messages or Gmail. Messages are read-only; Gmail is read/send only for the final brief.</li>
+            <li>Do not store unnecessary personal text-message content. Store structured summaries and source metadata instead.</li>
+            <li>Hosted Netlify cannot read Mac Messages. Mac Messages require the local runner on Sean's Mac.</li>
+            <li>Run validation and deploy at the end of completed builds unless Sean explicitly says not to deploy.</li>
+          </ul>
+
+          <h2>2. Current Architecture</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Current role</th>
+                <th>Important files</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Local web server</td>
+                <td>Serves UI and local API endpoints on <code>localhost:4318</code>.</td>
+                <td><code>src/server/server.mjs</code></td>
+              </tr>
+              <tr>
+                <td>Daily brief orchestrator</td>
+                <td>Runs Messages first, then Gmail, classification, AI refinement, review packet generation, and email send.</td>
+                <td><code>src/lib/auto-brief.mjs</code>, <code>apps/daily-brief/run-local-scheduled.mjs</code></td>
+              </tr>
+              <tr>
+                <td>Gmail ingestion</td>
+                <td>Fetches recent Gmail threads, classifies activity, groups chains, and determines replied vs unanswered.</td>
+                <td><code>src/lib/gmail-client.mjs</code>, <code>src/lib/parse-email-thread.mjs</code>, <code>src/lib/email-triage.mjs</code></td>
+              </tr>
+              <tr>
+                <td>Mac Messages memory</td>
+                <td>Reads local Apple Messages database safely and produces structured message-memory output for the brief.</td>
+                <td><code>src/lib/messages-memory.mjs</code>, <code>src/lib/messages-client.mjs</code></td>
+              </tr>
+              <tr>
+                <td>Business intelligence</td>
+                <td>Matches products, customers, suppliers, documents, logistics, and internal ClearEdge knowledge.</td>
+                <td><code>src/lib/clearedge-intelligence.mjs</code>, <code>src/lib/knowledge-bundle.mjs</code>, <code>data/</code></td>
+              </tr>
+              <tr>
+                <td>Review packet storage</td>
+                <td>Stores local proposed actions that are opened from email links or the local review page.</td>
+                <td><code>src/lib/local-review-actions.mjs</code>, <code>.local/review-actions/</code></td>
+              </tr>
+              <tr>
+                <td>Workflow kernel</td>
+                <td>Records durable local runs, ordered steps, action states, metrics, artifacts, logs, and errors for brief runs, intake analysis, and ShelfCycle submissions.</td>
+                <td><code>src/lib/workflow-runs.mjs</code>, <code>.local/workflow-runs/</code>, <code>/api/workflows/runs</code></td>
+              </tr>
+              <tr>
+                <td>ShelfCycle write attempt</td>
+                <td>Approval-first local browser automation. Customer notes can use a ShelfCycle id or human-selected customer label; other write paths still require live screen testing.</td>
+                <td><code>src/lib/shelfcycle-submit.mjs</code>, <code>src/lib/shelfcycle-automation-runner.mjs</code></td>
+              </tr>
+              <tr>
+                <td>Review UI</td>
+                <td>Shows proposed record/note previews and review/submit controls.</td>
+                <td><code>public/review-action.html</code>, <code>public/review-action.js</code>, <code>public/review-submit.html</code>, <code>public/review-submit.js</code></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2>3. Local vs Hosted Runtime</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th>Local Mac app</th>
+                <th>Hosted Netlify</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Read Mac Messages</td>
+                <td>Yes, with Full Disk Access and local scheduler.</td>
+                <td>No. Browser/serverless cannot access <code>~/Library/Messages/chat.db</code>.</td>
+              </tr>
+              <tr>
+                <td>Run scheduled combined brief</td>
+                <td>Yes, via launchd at 3:00 AM ET.</td>
+                <td>Can host pages, but not the Mac Messages part.</td>
+              </tr>
+              <tr>
+                <td>Show live run progress</td>
+                <td>Yes, via <code>/api/daily-brief/status</code>.</td>
+                <td>Currently no. Production status endpoint returns 404 unless a Netlify function is added.</td>
+              </tr>
+              <tr>
+                <td>Open review links</td>
+                <td>Yes, if local server is running.</td>
+                <td>Can host static review pages, but executable local ShelfCycle automation depends on local runtime.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h2>4. Current App Pages</h2>
+          <ul>
+            <li><code>/</code>: operational home dashboard with latest brief-derived information.</li>
+            <li><code>/briefs.html</code>: manual brief trigger, status, progress, exclusions, and unknown contacts.</li>
+            <li><code>/product-intake.html</code>: SDS/TDS/product intake work area.</li>
+            <li><code>/review-action.html</code>: review packet landing page from email brief links.</li>
+            <li><code>/review-submit.html</code>: local approval/submit flow for proposed ShelfCycle actions.</li>
+            <li><code>/settings.html</code>: reference data and settings page.</li>
+          </ul>
+
+          <h2>5. Daily Brief Pipeline</h2>
+          <pre><code>launchd 3:00 AM ET
+  -> apps/daily-brief/run-local-scheduled.mjs
+  -> src/lib/auto-brief.mjs
+  -> Messages memory source
+  -> Gmail source
+  -> classification and matching
+  -> OpenAI owner-style refinement, if configured
+  -> review packet generation
+  -> final emailed brief</code></pre>
+
+          <p>The brief should be action-first, not report-first. It should show the most important items first, hide raw URLs behind labeled links, and include short actions such as Gmail, Review Packet, Decide in ChatGPT, Attachment, and ShelfCycle Review.</p>
+
+          <h2>6. Known Health Check Results</h2>
+          <div class="callout success">
+            <strong>Working:</strong> local server health passed, syntax checks passed, static pages returned 200, and automated tests passed. The daily scheduler is installed and the May 5 run completed successfully with Gmail + Messages + review-link generation.
+          </div>
+          <ul>
+            <li>Last local daily brief run completed at approximately <code>2026-05-05T11:07:19Z</code>.</li>
+            <li>Last run processed <code>41</code> Gmail threads.</li>
+            <li>Last run found <code>1</code> business text-message thread.</li>
+            <li>Last run generated <code>8</code> review links.</li>
+            <li>Next run was scheduled for <code>2026-05-06 3:00 AM ET</code>.</li>
+          </ul>
+
+          <div class="callout warning">
+            <strong>Misleading UI issue:</strong> the home page text-message panel can show broader email-priority language instead of message-only intelligence. Fix by using structured message-memory output rather than scraping the final brief text.
+          </div>
+
+          <h2>7. Backend Gaps Blocking User Value</h2>
+          <h3>A. ShelfCycle Action Execution Coverage</h3>
+          <p>The backend now has an action router and approval-first submission endpoint. The remaining blocker is live, screen-tested execution coverage for every ShelfCycle action type. The UI should continue to distinguish executable actions from preview-only actions.</p>
+
+          <p>Needed action types:</p>
+          <ul>
+            <li><code>customer_note</code>: create a note on a resolved customer record.</li>
+            <li><code>supplier_note</code>: create a note on a supplier/company record if ShelfCycle supports this route.</li>
+            <li><code>contact_create</code>: create a contact under a selected customer/supplier/account.</li>
+            <li><code>product_create_or_update</code>: create/update product record from SDS/TDS/catalog evidence after approval.</li>
+            <li><code>product_document_followup</code>: attach or queue SDS/TDS/COA document handling.</li>
+            <li><code>pricing_record</code>: queue or save pricing intelligence tied to account/product/supplier.</li>
+            <li><code>order_or_logistics_note</code>: create shipment/order follow-up with container, PO, ETA, appointment, freight, or carrier details.</li>
+          </ul>
+
+          <h3>B. Target Resolution</h3>
+          <p>Many review packets still need a human-selected ShelfCycle target because the exported knowledge bundle has names and domains but not reliable ShelfCycle ids. Customer notes can now resolve by selected label; other action types need stronger id/label resolution.</p>
+          <ul>
+            <li>Use sender domain, contact list, customer export, supplier/product aliases, and knowledge bundle to suggest target accounts.</li>
+            <li>If target confidence is low, require user selection in the review UI before submit.</li>
+            <li>Do not mark an action executable until required target IDs and field mappings are present.</li>
+            <li>Store the selected target back into the local review packet so future action attempts are deterministic.</li>
+          </ul>
+
+          <h3>C. ShelfCycle Form Mirroring</h3>
+          <p>The review landing page should mirror ShelfCycle fields before submission. This means the backend should expose an action schema per action type, not just a generic note preview.</p>
+          <pre><code>{
+  "actionType": "contact_create",
+  "target": {
+    "kind": "customer",
+    "id": "shelfcycle-customer-id",
+    "label": "MAK Chemicals"
+  },
+  "fields": {
+    "firstName": "Kunal",
+    "lastName": "Butala",
+    "company": "MAK Chemicals",
+    "email": "",
+    "phone": "",
+    "role": "",
+    "notes": "Evidence-derived context."
+  },
+  "requiresUserApproval": true,
+  "isExecutable": true
+}</code></pre>
+
+          <h2>8. Review Packet Flow Today</h2>
+          <pre><code>Email brief link
+  -> /review-action.html?id=...&amp;token=...
+  -> browser fetches /api/review-action
+  -> review UI renders proposed actions
+  -> optional /review-submit.html local approval page
+  -> /api/shelfcycle/note-target validates target
+  -> automation runner opens/uses ShelfCycle for supported note creation</code></pre>
+
+          <p>The handoff from human review URLs to API payloads has been improved. The remaining issue is not loading. It is executable action support and target mapping.</p>
+
+          <h2>9. Suggested Backend Design</h2>
+          <h3>Workflow run contract</h3>
+          <pre><code>workflowRun
+  -> id, type, mode, status, actionState
+  -> ordered steps[]
+  -> metrics, artifacts, approval, logs, error
+
+GET /api/workflows/runs
+GET /api/workflows/latest
+GET /api/workflows/run?id=...</code></pre>
+
+          <h3>Action router contract</h3>
+          <pre><code>collectExecutableActions(reviewAction)
+  -> proposedActions[]
+  -> each action has:
+     - actionType
+     - displayLabel
+     - confidence
+     - sourceEvidence
+     - targetCandidates[]
+     - selectedTarget
+     - requiredFields[]
+     - fieldValues
+     - warnings[]
+     - executable: boolean
+     - submitEndpoint</code></pre>
+
+          <h3>Submission contract</h3>
+          <pre><code>POST /api/shelfcycle/submit-action
+{
+  "reviewActionId": "...",
+  "token": "...",
+  "actionType": "contact_create",
+  "selectedTarget": { "kind": "customer", "id": "..." },
+  "fields": { "...": "..." },
+  "approvedByUser": true
+}</code></pre>
+
+          <p>The backend should validate the token, confirm the action is still valid, reject missing targets or required fields, run only the selected action, then return a result with a ShelfCycle URL if available.</p>
+
+          <h2>10. Tests Needed Next</h2>
+          <ul>
+            <li>Review packet with known customer match produces executable <code>customer_note</code>.</li>
+            <li>Review packet with known contact suggestion produces <code>contact_create</code> requiring selected account.</li>
+            <li>Review packet with pricing intelligence produces <code>pricing_record</code> or <code>pricing_followup</code> without pretending it has been saved.</li>
+            <li>Low-confidence match blocks submit and asks for user target selection.</li>
+            <li>Hosted page clearly reports that local-only APIs require <code>localhost:4318</code>.</li>
+            <li>Home dashboard message section uses message-memory source only.</li>
+          </ul>
+
+          <h2>11. Current Source Control Warning</h2>
+          <p>The working tree has important uncommitted work, including the page split, review flow changes, progress UI, and local scheduler updates. There is also a stray file named <code>public/index 2.html</code>. Do not delete it without Sean's approval, but avoid deploying it accidentally.</p>
+
+          <h2>12. Commands for Local Validation</h2>
+          <pre><code>cd /Users/seanwagner/Documents/Playground/shelfcycle-mvp
+node --check apps/daily-brief/run-local-scheduled.mjs
+node --check src/lib/auto-brief.mjs
+node --check src/server/server.mjs
+node --check public/app.js
+node --check public/review-action.js
+node --check public/review-submit.js
+node --test
+git diff --check
+curl -sS http://localhost:4318/health
+curl -sS http://localhost:4318/api/daily-brief/status</code></pre>
+
+          <h2>13. Questions for the Reviewing Agent</h2>
+          <ul>
+            <li>What is the smallest safe ShelfCycle action router that creates real value without risking accidental records?</li>
+            <li>Should ShelfCycle automation be browser-driven only, API-driven if possible, or split by action type?</li>
+            <li>What record types should be executable first: customer notes, contact creation, pricing records, product document tasks, or product creation?</li>
+            <li>How should the hosted/static pages detect and explain local-only features?</li>
+            <li>What structured run-summary format should the brief pipeline persist so the dashboard does not scrape prose?</li>
+          </ul>
+
+          <h2>14. Recommended Next Build Order</h2>
+          <ol>
+            <li>Implement action schema generation for review packets.</li>
+            <li>Add target candidate resolution and user target selection.</li>
+            <li>Make only validated actions show as executable.</li>
+            <li>Add <code>POST /api/shelfcycle/submit-action</code> as the single verified submit endpoint.</li>
+            <li>Fix home dashboard message source separation.</li>
+            <li>Commit the current work once checks pass.</li>
+          </ol>
+        </div>
+      </article>
+    </main>
+  </body>
+</html>

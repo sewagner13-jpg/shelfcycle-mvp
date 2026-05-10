@@ -59,6 +59,8 @@ test("parseEmailThread extracts subject and suggested contacts", () => {
   assert.equal(result.fields.subject, "Re: Silica TDS 220/230 and 932");
   assert.ok(result.suggestedCreates.some((item) => item.email === "kaylib.rhinehart@siegwerk.com"));
   assert.equal(result.draftNote.type, "Email");
+  assert.ok(result.draftNote.summary.includes("Thread Summary"));
+  assert.ok(result.draftNote.summary.includes("Recommended next step"));
 });
 
 test("importCsv maps catalog product inventory and hazmat fields", () => {
