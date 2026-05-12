@@ -290,6 +290,7 @@ function compactLine(item, { timeZone, locale }) {
   const docs = artifactSuffix(item);
   const silo = item.silo?.name ? ` | ${item.silo.name}` : "";
   const intelligence = intelligenceSuffix(item);
+  const shelfCycleStatus = shelfCycleRelationshipStatus(item);
   const gmail = gmailThreadUrl(item) ? ` | Gmail: ${gmailThreadUrl(item)}` : "";
   const messages = messagesThreadUrl(item) ? ` | Messages: ${messagesThreadUrl(item)}` : "";
   const review = item.reviewUrl ? ` | Review: ${item.reviewUrl}` : "";
@@ -299,7 +300,7 @@ function compactLine(item, { timeZone, locale }) {
     : "";
   const chatgpt = chatGptUrlForItem(item, nextStep) ? ` | Decide in ChatGPT: ${chatGptUrlForItem(item, nextStep)}` : "";
 
-  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}${shelfCycle}${chatgpt}`;
+  return `- ${who}${domain} | ${item.subject || "No subject"} | ${time} | ${item.relationship.relationship}${silo} | ShelfCycle status: ${shelfCycleStatus} | ${keyPoint || "No concise summary available"}${docs}${intelligence}${nextStep ? ` | Next: ${nextStep}` : ""}${gmail}${messages}${review}${shelfCycle}${chatgpt}`;
 }
 
 function sumRoleWorklists(items = [], role) {
@@ -727,7 +728,8 @@ function reviewSubmitUrl(item = {}, action = {}) {
     return "";
   }
 
-  const url = new URL("http://localhost:4318/review-submit.html");
+  const reviewUrl = new URL(item.reviewUrl);
+  const url = new URL("/review-submit.html", reviewUrl.origin);
   url.searchParams.set("reviewUrl", item.reviewUrl);
   url.searchParams.set("section", action.actionType);
   url.searchParams.set("actionId", action.id);
@@ -816,6 +818,7 @@ function formatActionCard(item = {}, { timeZone, locale } = {}) {
       `<strong>Time:</strong> ${escapeHtml(formatTime(item.lastTimestamp, locale, timeZone) || "-")}`,
       `<strong>Type:</strong> ${escapeHtml(relationshipLabel(item) || statusLabel(item) || "-")}`,
       `<strong>Company:</strong> ${escapeHtml(company)}`,
+      `<strong>ShelfCycle status:</strong> ${escapeHtml(shelfCycleRelationshipStatus(item))}`,
       `<strong>Action:</strong> ${escapeHtml(nextStep || "Review if needed.")}`,
       `<strong>Why:</strong> ${escapeHtml(truncateInsight(keyPoint(item), 180))}`,
       ...notes.map((note) => `<strong>${note.split(":")[0]}:</strong>${note.includes(":") ? note.slice(note.indexOf(":") + 1) : ""}`),
@@ -858,6 +861,84 @@ function candidateLabelFromMatches(matches = {}, keys = []) {
   }
 
   return "";
+}
+
+function matchCandidatesFromKeys(matches = {}, keys = []) {
+  return keys.flatMap((key) =>
+    (matches[key] ?? []).map((entry) => ({
+      ...(entry?.candidate ?? entry),
+      score: entry?.score
+    }))
+  );
+}
+
+function candidateDisplayName(candidate = {}) {
+  return candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
+}
+
+function candidateCompanyType(candidate = {}) {
+  return String(candidate.companyType || candidate.type || candidate.raw?.company_type || "").trim().toLowerCase();
+}
+
+function proposedActionTypes(item = {}) {
+  return [
+    ...(item.proposedActions ?? []),
+    ...(item.reviewAction?.proposedActions ?? [])
+  ].map((action) => action?.actionType).filter(Boolean);
+}
+
+function shelfCycleRelationshipStatus(item = {}) {
+  const matches = item.analysis?.matches ?? item.matches ?? {};
+  const customers = matchCandidatesFromKeys(matches, ["customer", "customers"])
+    .map(candidateDisplayName)
+    .filter(Boolean);
+  const suppliers = matchCandidatesFromKeys(matches, ["supplier", "suppliers"])
+    .map(candidateDisplayName)
+    .filter(Boolean);
+  const contacts = matchCandidatesFromKeys(matches, ["contact", "contacts"]);
+  const customerContacts = contacts
+    .filter((candidate) => candidateCompanyType(candidate) === "customer")
+    .map((candidate) => candidate.companyName || candidateDisplayName(candidate))
+    .filter(Boolean);
+  const supplierContacts = contacts
+    .filter((candidate) => candidateCompanyType(candidate) === "supplier")
+    .map((candidate) => candidate.companyName || candidateDisplayName(candidate))
+    .filter(Boolean);
+  const actionTypes = proposedActionTypes(item);
+  const suggestedTypes = (item.analysis?.suggestedCreates ?? item.suggestedCreates ?? [])
+    .map((entry) => entry.type)
+    .filter(Boolean);
+  const existing = [];
+
+  if (customers[0]) {
+    existing.push(`Existing customer: ${customers[0]}`);
+  }
+
+  if (suppliers[0]) {
+    existing.push(`Existing supplier: ${suppliers[0]}`);
+  }
+
+  if (!customers[0] && customerContacts[0]) {
+    existing.push(`Existing customer contact: ${customerContacts[0]}`);
+  }
+
+  if (!suppliers[0] && supplierContacts[0]) {
+    existing.push(`Existing supplier contact: ${supplierContacts[0]}`);
+  }
+
+  if (existing.length) {
+    return existing.slice(0, 2).join("; ");
+  }
+
+  if (actionTypes.includes("customer_create") || suggestedTypes.includes("customer")) {
+    return "No existing customer found; customer create candidate available.";
+  }
+
+  if (actionTypes.includes("supplier_create") || suggestedTypes.includes("supplier")) {
+    return "No existing supplier found; supplier create candidate available.";
+  }
+
+  return "No confirmed ShelfCycle customer/supplier match.";
 }
 
 function companyLabel(item = {}) {
@@ -1128,6 +1209,7 @@ function formatShelfCycleFollowThroughCards(items = [], { timeZone, locale } = {
       htmlList([
         `<strong>Received:</strong> ${escapeHtml(formatTime(item.lastTimestamp, locale, timeZone) || "-")}`,
         `<strong>Review:</strong> ${item.reviewUrl ? htmlLink("Review Packet", item.reviewUrl) : "None"}`,
+        `<strong>ShelfCycle status:</strong> ${escapeHtml(shelfCycleRelationshipStatus(item))}`,
         `<strong>Draft note:</strong> ${item.analysis?.draftNote?.summary ? "Yes" : "No"}`,
         `<strong>Suggested records:</strong> ${item.analysis?.suggestedCreates?.length ?? 0}`,
         shelfCycleCandidate?.shouldConsider

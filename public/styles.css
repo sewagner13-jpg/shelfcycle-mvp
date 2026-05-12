@@ -1079,6 +1079,130 @@ button:disabled:hover {
   min-height: 220px;
 }
 
+.operator-packet-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.decision-panel {
+  border-color: rgba(13, 107, 99, 0.22);
+  background: linear-gradient(135deg, #ffffff, #edf6f3);
+}
+
+.decision-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.95fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.decision-hero h2 {
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: clamp(1.35rem, 2.1vw, 2.15rem);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.decision-why {
+  max-width: 760px;
+  margin: 12px 0 0;
+  color: #334155;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.decision-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.decision-meta-grid .stat-card {
+  min-height: 84px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.decision-meta-grid .stat-card strong {
+  font-size: 0.96rem;
+  line-height: 1.22;
+}
+
+.operator-packet-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.operator-card {
+  min-height: 118px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.operator-card span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.operator-card p,
+.operator-card ul {
+  margin: 0;
+  color: #263545;
+  font-size: 0.93rem;
+  line-height: 1.44;
+}
+
+.operator-card ul {
+  display: grid;
+  gap: 6px;
+  padding-left: 18px;
+}
+
+.operator-card-primary,
+.operator-card-accent {
+  border-color: rgba(13, 107, 99, 0.24);
+  background: linear-gradient(180deg, #ffffff, var(--accent-soft));
+}
+
+.operator-card-primary {
+  grid-column: span 2;
+}
+
+.operator-card-accent p {
+  color: var(--accent-strong);
+  font-weight: 900;
+}
+
+.operator-card-muted {
+  background: var(--surface-soft);
+}
+
+.review-output-grid .text-block,
+.record-side .text-block {
+  font-family: "Aptos", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 0.9rem;
+}
+
+.review-source-details {
+  margin-top: 18px;
+  padding: 13px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.review-source-details[open] {
+  background: #ffffff;
+}
+
 .visually-secondary {
   margin-top: 12px;
   opacity: 0.72;
@@ -1711,8 +1835,18 @@ button:disabled:hover {
   .split-section,
   .record-page,
   .intake-grid,
-  .output-grid {
+  .output-grid,
+  .operator-packet-grid,
+  .decision-hero {
     grid-template-columns: 1fr;
+  }
+
+  .operator-card-primary {
+    grid-column: auto;
+  }
+
+  .decision-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .record-side,

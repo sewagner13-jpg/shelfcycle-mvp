@@ -1,7 +1,5 @@
 import { getEnv } from "./env.mjs";
 
-const BOOTSTRAP_SYNC_TOKEN = "LxdnWtNjJ3ceOcE0LxlLjeZ0TYKLyYJoYU_k0CeVQSQ";
-
 function unauthorized(message = "Unauthorized") {
   return new Response(message, {
     status: 401
@@ -9,7 +7,7 @@ function unauthorized(message = "Unauthorized") {
 }
 
 export function requireBearerToken(req) {
-  const expected = getEnv("KNOWLEDGE_SYNC_TOKEN") || BOOTSTRAP_SYNC_TOKEN;
+  const expected = getEnv("KNOWLEDGE_SYNC_TOKEN");
 
   if (!expected) {
     return {

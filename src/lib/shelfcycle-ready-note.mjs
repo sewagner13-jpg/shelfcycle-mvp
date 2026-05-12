@@ -1,4 +1,5 @@
 import { compactWhitespace, uniqueStrings } from "./normalize.mjs";
+import { companyNameFromSubject, preferredExternalParticipant } from "./business-email-identity.mjs";
 
 function decodeHtmlEntities(value = "") {
   return String(value)
@@ -29,23 +30,65 @@ function cleanLine(value = "") {
   return compactWhitespace(decodeHtmlEntities(value));
 }
 
+function stripGeneratedIntelligenceBlock(value = "") {
+  return String(value || "").replace(
+    /^\s*#{1,6}\s*ClearEdge Intelligence Brief[\s\S]*?(?=\n\s*Thread Summary:|\n\s*Interaction Type:|$)/i,
+    ""
+  );
+}
+
 function trimEmailTail(value = "") {
   return String(value || "")
     .replace(/\s--\sKind regards[\s\S]*$/i, "")
     .replace(/\sBest regards,?[\s\S]*$/i, "")
+    .replace(/\sAll the best,?[\s\S]*$/i, "")
+    .replace(/\sThanks,?[\s\S]*$/i, "")
     .replace(/\s--\sThanks[\s\S]*$/i, "")
     .replace(/\s--\sRegards[\s\S]*$/i, "")
     .replace(/\s[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3},\s*(?:President|Owner|Director|VP|Vice President|Sales|Manager|Purchasing|Procurement)[\s\S]*$/i, "")
     .replace(/\sOn .+ wrote:[\s\S]*$/i, "");
 }
 
+function cleanLegacyRequestTarget(value = "") {
+  return cleanLine(value)
+    .replace(/\bthe\s+(?=[A-Z]?\d)/gi, "")
+    .replace(/\s+to\s+(?:the\s+following|following)\s*:?\s*$/i, "")
+    .replace(/\s*[:;,.]\s*$/g, "");
+}
+
+function normalizeLegacyRequestText(value = "") {
+  const text = cleanLine(value);
+  const directMatch = text.match(/^([A-Z][A-Za-z.'-]+)\s*[-:]\s*please\s+send\s+(.+?)(?:\s+to\s+(?:the\s+following|following)\s*:?\s*|[.!?]\s*|$)/i);
+
+  if (directMatch) {
+    const assignee = cleanLine(directMatch[1]);
+    const requested = cleanLegacyRequestTarget(directMatch[2]);
+
+    if (assignee && requested) {
+      return `${assignee} was asked to send ${requested}.`;
+    }
+  }
+
+  const requestMatch = text.match(/\bplease\s+send\s+(.+?)(?:\s+to\s+(?:the\s+following|following)\s*:?\s*|[.!?]\s*|$)/i);
+
+  if (requestMatch) {
+    const requested = cleanLegacyRequestTarget(requestMatch[1]);
+
+    if (requested) {
+      return `Requested send of ${requested}.`;
+    }
+  }
+
+  return text;
+}
+
 function shortText(value = "", maxLength = 240) {
-  const text = cleanLine(trimEmailTail(value))
+  const text = normalizeLegacyRequestText(cleanLine(trimEmailTail(stripGeneratedIntelligenceBlock(value)))
     .replace(/^Thread Summary:\s*/i, "")
     .replace(/^Main takeaway:\s*/i, "")
     .replace(/^Recommended next step:\s*/i, "")
     .replace(/^(?:sean,?\s*)?(?:happy\s+(?:monday|tuesday|wednesday|thursday|friday|weekend)\.?\s*)/i, "")
-    .replace(/^sean,?\s*/i, "");
+    .replace(/^sean,?\s*/i, ""));
 
   if (text.length <= maxLength) {
     return text;
@@ -58,6 +101,52 @@ function shortText(value = "", maxLength = 240) {
   }
 
   return `${text.slice(0, maxLength - 3).trim()}...`;
+}
+
+function isLowValueLegacyBullet(value = "") {
+  return /\b(kind regards,\s*sean|clear-edge\.net|linkedin\.com\/in\/sean|on .+ wrote:|sorry[,.]?\s+forgot|i just wanted to reach out|old school crm|who needs ai|extracted gmail signatures)\b/i.test(value);
+}
+
+function looksLikeExternalReply(value = "") {
+  return /\b(hello\s+sean|hi\s+sean|dear\s+sean|pleasure talking|i(?:'|’)ve cc(?:'|e)?d|will be follow(?:ing)? it up)\b/i.test(value);
+}
+
+function operatorNextStep(value = "", action = {}) {
+  const raw = cleanLine(stripGeneratedIntelligenceBlock(value));
+  const text = shortText(value, 180);
+
+  if (!text) {
+    return "";
+  }
+
+  if (/^hello\s+sean\b/i.test(raw) && (
+    /\b(cc(?:'|e)?d|will be follow(?:ing)? it up|salesperson|sales team)\b/i.test(raw) ||
+    action.relationship?.relationship === "supplier"
+  )) {
+    const relationship = action.relationship?.relationship === "supplier" ? "supplier" : "customer";
+    return `Decide whether to create or update the ${relationship} and contact record in ShelfCycle, then log the follow-up owner from the thread.`;
+  }
+
+  if (/\b(?:please send|was asked to send|requested send of)\b/i.test(raw) || /\bwas asked to send\b/i.test(text)) {
+    return "Send or confirm the requested sample/material follow-up, then log the outcome in ShelfCycle.";
+  }
+
+  return text;
+}
+
+function operatorSummaryText(value = "", action = {}) {
+  const raw = cleanLine(stripGeneratedIntelligenceBlock(value));
+
+  if (/^hello\s+sean\b/i.test(raw) && action.relationship?.relationship === "supplier") {
+    const company = companyNameFromSubject(action.subject || action.fields?.subject || "") || "The supplier";
+    return `${company} replied after the meeting and moved the follow-up to the appropriate sales contact.`;
+  }
+
+  if (/\b(?:please send|was asked to send|requested send of)\b/i.test(raw)) {
+    return shortText(raw);
+  }
+
+  return shortText(value);
 }
 
 function extractLabeledText(text = "", label = "") {
@@ -82,6 +171,7 @@ function extractLegacySectionBullets(text = "", label = "") {
     .map((item) => item.replace(/^\s*-\s*/, ""))
     .map((item) => shortText(item, 220))
     .filter(Boolean)
+    .filter((item) => !isLowValueLegacyBullet(item))
     .filter((item) => !/^(?:Interaction Type|Subject|External Participants|Matched Contacts|Key Points|Next Steps):/i.test(item))
     .slice(0, 4);
 }
@@ -97,7 +187,7 @@ function firstClean(...values) {
 }
 
 function externalLabel(action = {}) {
-  const participant = action.externalParticipants?.[0] ?? {};
+  const participant = preferredExternalParticipant(action);
   return firstClean(participant.name, participant.email, participant.domain);
 }
 
@@ -121,6 +211,8 @@ function parseCandidateField(field = "") {
 }
 
 function collectKeyVariables(action = {}, candidate = null) {
+  const cleanSummary = stripGeneratedIntelligenceBlock(action.summary);
+  const cleanDraftSummary = stripGeneratedIntelligenceBlock(action.draftNote?.summary);
   const fields = (candidate?.fields ?? []).map(parseCandidateField);
   const details = (action.briefAi?.keyDetails ?? []).map(cleanLine);
   const fromDraft = [
@@ -133,8 +225,8 @@ function collectKeyVariables(action = {}, candidate = null) {
   ].map(cleanLine);
 
   const money = extractMoneyVariables(
-    action.summary,
-    action.draftNote?.summary,
+    cleanSummary,
+    cleanDraftSummary,
     action.briefAi?.why,
     action.briefAi?.keyDetails,
     candidate?.summary,
@@ -143,7 +235,7 @@ function collectKeyVariables(action = {}, candidate = null) {
 
   return uniqueStrings([...details, ...fields, ...fromDraft, ...money].filter(Boolean))
     .map((item) => shortText(item, 160))
-    .slice(0, 10);
+    .slice(0, 5);
 }
 
 function collectDocumentNames(action = {}) {
@@ -159,8 +251,8 @@ function collectDocumentNames(action = {}) {
 
 function decisionOrStatus(action = {}, candidate = null, draftSummary = "") {
   const combined = [
-    action.summary,
-    action.draftNote?.summary,
+    stripGeneratedIntelligenceBlock(action.summary),
+    stripGeneratedIntelligenceBlock(action.draftNote?.summary),
     action.briefAi?.why,
     action.briefAi?.action,
     candidate?.summary
@@ -177,6 +269,14 @@ function decisionOrStatus(action = {}, candidate = null, draftSummary = "") {
 
   if (/\bperformance\b[\s\S]{0,80}\bacceptable\b/i.test(combined) && /\bpricing|price|quote\b/i.test(combined)) {
     return "Product performance was reported as acceptable; pricing is the open follow-up.";
+  }
+
+  if (/\bcc(?:'|e)?d\b[\s\S]{0,140}\b(salesperson|sales\s+person|sales team|mr\.?\s+shin)\b/i.test(combined)) {
+    return "Green Chemical introduced a sales contact to continue the EO/PO derivatives follow-up; no ShelfCycle record decision is final yet.";
+  }
+
+  if (/\b(?:please send|was asked to send|requested send of)\b/i.test(combined)) {
+    return "Sample/material follow-up is open; the packet does not show that the requested items were sent.";
   }
 
   const labeledTakeaway = extractLabeledText(action.summary, "Main takeaway") || extractLabeledText(draftSummary, "Main takeaway");
@@ -218,22 +318,33 @@ export function buildShelfCycleReadyNote(action = {}) {
   const draftNote = action.draftNote ?? {};
   const fields = action.writePlan?.fields ?? {};
   const candidate = aiShelfCycleCandidate(action);
-  const draftSummary = firstClean(draftNote.summary, fields.summary, action.summary);
-  const legacyKeyPoints = extractLegacySectionBullets(action.summary || draftSummary, "Key Points");
-  const legacyNextSteps = extractLegacySectionBullets(action.summary || draftSummary, "Next Steps");
+  const cleanedDraftSummary = firstClean(
+    stripGeneratedIntelligenceBlock(draftNote.summary),
+    stripGeneratedIntelligenceBlock(fields.summary),
+    stripGeneratedIntelligenceBlock(action.summary)
+  );
+  const cleanedActionSummary = firstClean(stripGeneratedIntelligenceBlock(action.summary));
+  const draftSummary = firstClean(cleanedDraftSummary, cleanedActionSummary);
+  const legacySource = cleanedActionSummary || draftSummary;
+  const legacyKeyPoints = extractLegacySectionBullets(legacySource, "Key Points").slice(0, 2);
+  const legacyNextSteps = extractLegacySectionBullets(legacySource, "Next Steps").slice(0, 2);
   const title = firstClean(candidate?.title, draftNote.title, fields.title, action.subject, "ClearEdge note");
-  const labeledNextStep = extractLabeledText(action.summary, "Recommended next step") || extractLabeledText(draftSummary, "Recommended next step");
-  const labeledTakeaway = extractLabeledText(action.summary, "Main takeaway") || extractLabeledText(draftSummary, "Main takeaway");
-  const actionText = firstClean(action.briefAi?.action, action.followUpDraft?.nextStep, labeledNextStep);
+  const labeledNextStep = extractLabeledText(cleanedActionSummary, "Recommended next step") || extractLabeledText(draftSummary, "Recommended next step");
+  const labeledTakeaway = extractLabeledText(cleanedActionSummary, "Main takeaway") || extractLabeledText(draftSummary, "Main takeaway");
+  const actionText = operatorNextStep(firstClean(action.briefAi?.action, action.followUpDraft?.nextStep, labeledNextStep), action);
   const why = firstClean(action.briefAi?.why, candidate?.summary, labeledTakeaway, draftSummary);
   const variables = collectKeyVariables(action, candidate);
   const documents = collectDocumentNames(action);
   const participant = externalLabel(action);
+  const externalReplySummary = operatorSummaryText(
+    legacyKeyPoints.find(looksLikeExternalReply) || (looksLikeExternalReply(labeledNextStep) ? labeledNextStep : ""),
+    action
+  );
   const lines = [];
 
   addSection(lines, "Summary", [
-    ...(candidate || action.briefAi ? [why || draftSummary] : legacyKeyPoints),
-    !legacyKeyPoints.length ? (why || draftSummary || "Review packet generated from ClearEdge communication.") : ""
+    ...(candidate || action.briefAi || labeledTakeaway ? [externalReplySummary || why || draftSummary] : legacyKeyPoints),
+    !legacyKeyPoints.length && !externalReplySummary ? (why || draftSummary || "Review packet generated from ClearEdge communication.") : ""
   ]);
   addSection(lines, "Decision / status", [
     decisionOrStatus(action, candidate, draftSummary)

@@ -50,7 +50,9 @@ export function buildNoteFields(action = {}) {
   const draftNote = action.draftNote ?? {};
   const writePlan = action.writePlan ?? {};
   const fields = writePlan.fields ?? {};
-  const readyNote = action.shelfCycleReadyNote ?? buildShelfCycleReadyNote(action);
+  const readyNote = action.shelfCycleReadyNote?.source === "user_approved"
+    ? action.shelfCycleReadyNote
+    : buildShelfCycleReadyNote(action);
   const summary = cleanNoteText(readyNote.summary ?? draftNote.summary ?? fields.summary ?? action.summary ?? "");
 
   return {

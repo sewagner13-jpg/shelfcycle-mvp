@@ -24,6 +24,51 @@ let selectedTarget = null;
 let latestCustomerResearch = null;
 let latestSupplierResearch = null;
 const submittedActionIds = new Set();
+const LOCAL_MVP_API_BASE = "http://localhost:4318";
+
+function isLocalMvpHost() {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function localOnlyApiUrl(path = "") {
+  return isLocalMvpHost() ? path : `${LOCAL_MVP_API_BASE}${path}`;
+}
+
+async function parseJsonResponse(response) {
+  const text = await response.text();
+
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      ok: false,
+      error: text
+    };
+  }
+}
+
+async function fetchJson(url, options = {}, { localOnly = false } = {}) {
+  try {
+    const response = await fetch(url, options);
+    const payload = await parseJsonResponse(response);
+
+    if (!response.ok) {
+      throw new Error(payload.error?.message || payload.message || payload.error || `Request failed with status ${response.status}.`);
+    }
+
+    return payload;
+  } catch (error) {
+    if (localOnly && !isLocalMvpHost()) {
+      throw new Error("This action requires the local ClearEdge backend running at http://localhost:4318. Open this page on the Mac or start the local app, then retry.");
+    }
+
+    throw error;
+  }
+}
 
 function setOutput(element, value) {
   element.textContent = value || "None";
@@ -1281,7 +1326,7 @@ async function researchCompanyInfo(recordType = "customer") {
 
   submitStatusEl.textContent = `Researching public ${label} information with ChatGPT...`;
   const { id, token } = reviewUrlParams();
-  const response = await fetch("/api/company/research", {
+  const payload = await fetchJson(localOnlyApiUrl("/api/company/research"), {
     method: "POST",
     headers: {
       "content-type": "application/json"
@@ -1295,12 +1340,9 @@ async function researchCompanyInfo(recordType = "customer") {
       action: currentAction,
       fields: mergedActionFields()
     })
+  }, {
+    localOnly: true
   });
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.message || payload.error?.message || `${fieldLabel(label)} research failed.`);
-  }
 
   const latestResearch = {
     confidence: payload.research?.confidence ?? 0,
@@ -1392,19 +1434,13 @@ async function loadReviewAction() {
   syncQueryParam();
   submitStatusEl.textContent = "Loading review packet...";
 
-  const response = await fetch("/api/load-review-action", {
+  const payload = await fetchJson("/api/load-review-action", {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
     body: JSON.stringify({ reviewUrl })
   });
-
-  const payload = await response.json();
-
-  if (!response.ok) {
-    throw new Error(payload.error?.message || payload.error || "Could not load review packet.");
-  }
 
   latestCustomerResearch = null;
   latestSupplierResearch = null;
@@ -1430,14 +1466,15 @@ async function loadReviewAction() {
 
 async function openShelfCycleSession() {
   submitStatusEl.textContent = "Opening local ShelfCycle browser session...";
-  const response = await fetch("/api/shelfcycle/open-session", {
+  const payload = await fetchJson(localOnlyApiUrl("/api/shelfcycle/open-session"), {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
     body: JSON.stringify(currentAction ? { action: currentAction } : {})
+  }, {
+    localOnly: true
   });
-  const payload = await response.json();
   submitStatusEl.textContent = payload.message || "ShelfCycle browser session opened.";
 
   if (payload.submission) {
@@ -1482,7 +1519,7 @@ async function submitNote() {
 
   try {
     const { id, token } = reviewUrlParams();
-    const response = await fetch("/api/shelfcycle/submit-action", {
+    const payload = await fetchJson(localOnlyApiUrl("/api/shelfcycle/submit-action"), {
       method: "POST",
       headers: {
         "content-type": "application/json"
@@ -1496,13 +1533,9 @@ async function submitNote() {
         fields: editedFields,
         approvedByUser: true
       })
+    }, {
+      localOnly: true
     });
-
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error?.message || payload.error || "ShelfCycle submission failed.");
-    }
 
     submittedActionIds.add(currentProposedAction.id);
     submitResultEl.textContent = formatSubmitResult(payload);

@@ -12,6 +12,10 @@ import { collectNoteMentionCandidates } from "./shelfcycle-mentions.mjs";
 import { normalizeShelfCycleNoteText } from "./shelfcycle-ready-note.mjs";
 import { normalizeContactDocumentTypes } from "./shelfcycle-contact-document-types.mjs";
 import { resolveCustomerTargets, resolveSupplierTargets } from "./shelfcycle-target-resolver.mjs";
+import {
+  preferredExternalParticipant,
+  preferredSuggestedContact
+} from "./business-email-identity.mjs";
 
 export const SHELFCYCLE_ACTION_TYPES = Object.freeze({
   CUSTOMER_NOTE: "customer_note",
@@ -101,7 +105,7 @@ function hasActionKey(reviewAction = {}, key = "") {
 }
 
 function hasSuggestedContact(reviewAction = {}) {
-  return (reviewAction.suggestedCreates ?? []).some((item) => item.type === "contact");
+  return Boolean(firstSuggestedContact(reviewAction));
 }
 
 function hasSuggestedCustomer(reviewAction = {}) {
@@ -113,7 +117,7 @@ function hasSuggestedSupplier(reviewAction = {}) {
 }
 
 function firstSuggestedContact(reviewAction = {}) {
-  return (reviewAction.suggestedCreates ?? []).find((item) => item.type === "contact") ?? null;
+  return preferredSuggestedContact(reviewAction);
 }
 
 function isCustomerCreateCandidate(reviewAction = {}) {
@@ -156,7 +160,7 @@ function isDailyBriefCustomerCreateCandidate(reviewAction = {}, customerTargets 
     return false;
   }
 
-  const participant = reviewAction.externalParticipants?.[0] ?? {};
+  const participant = preferredExternalParticipant(reviewAction);
   const contact = firstSuggestedContact(reviewAction) ?? {};
 
   return Boolean(
@@ -209,7 +213,7 @@ function isDailyBriefSupplierCreateCandidate(reviewAction = {}, supplierTargets 
     return false;
   }
 
-  const participant = reviewAction.externalParticipants?.[0] ?? {};
+  const participant = preferredExternalParticipant(reviewAction);
   const contact = firstSuggestedContact(reviewAction) ?? {};
 
   return Boolean(

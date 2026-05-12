@@ -1,5 +1,6 @@
 import { compactWhitespace, uniqueStrings } from "./normalize.mjs";
 import { getAccessToken } from "./gmail-client.mjs";
+import { extractGmailSignaturesFromThread } from "./gmail-signature-extractor.mjs";
 
 const DRIVE_LINK_PATTERNS = [
   /https?:\/\/drive\.google\.com\/file\/d\/([A-Z0-9_-]+)/gi,
@@ -173,7 +174,11 @@ export async function enrichThreadsWithWorkspaceArtifacts(
   {
     config,
     enableDriveEnrichment = true,
-    maxDriveFilesPerThread = 6
+    maxDriveFilesPerThread = 6,
+    enableSignatureExtraction = true,
+    signatureExtractionConfig = {},
+    fetchAttachmentDataImpl,
+    fetchImpl = fetch
   } = {}
 ) {
   const enrichedThreads = [];
@@ -201,6 +206,21 @@ export async function enrichThreadsWithWorkspaceArtifacts(
       driveError = driveResult.error ?? "";
     }
 
+    let emailSignatures = [];
+    let signatureWarnings = [];
+
+    if (enableSignatureExtraction) {
+      const signatureResult = await extractGmailSignaturesFromThread(thread, {
+        attachments,
+        gmailConfig: config,
+        signatureConfig: signatureExtractionConfig,
+        fetchAttachmentDataImpl,
+        fetchImpl
+      });
+      emailSignatures = signatureResult.signatures;
+      signatureWarnings = signatureResult.warnings;
+    }
+
     enrichedThreads.push({
       ...thread,
       workspaceArtifacts: {
@@ -208,7 +228,9 @@ export async function enrichThreadsWithWorkspaceArtifacts(
         driveFileIds,
         driveFiles,
         driveScopeAvailable,
-        driveError
+        driveError,
+        emailSignatures,
+        signatureWarnings
       }
     });
   }

@@ -177,6 +177,32 @@ function actionPath(storageDir, actionId = "") {
   return path.join(storageDir, `${actionId}.json`);
 }
 
+function cleanBaseUrl(baseUrl = "http://localhost:4318") {
+  return String(baseUrl || "http://localhost:4318").replace(/\/+$/, "");
+}
+
+function reviewActionUrl(baseUrl = "", action = {}) {
+  const base = cleanBaseUrl(baseUrl);
+  return `${base}/review-action.html?id=${encodeURIComponent(action.id)}&token=${encodeURIComponent(action.viewToken)}`;
+}
+
+function syncTimeoutSignal(timeoutMs = 8000) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || typeof AbortSignal === "undefined" || !AbortSignal.timeout) {
+    return undefined;
+  }
+
+  return AbortSignal.timeout(timeoutMs);
+}
+
+function syncFailure(message = "Hosted review sync was not configured.", extra = {}) {
+  return {
+    ok: false,
+    synced: false,
+    message,
+    ...extra
+  };
+}
+
 export async function saveLocalReviewAction(storageDir, action = {}) {
   await mkdir(storageDir, { recursive: true });
   await writeFile(actionPath(storageDir, action.id), JSON.stringify(action, null, 2), "utf8");
@@ -194,9 +220,68 @@ export async function loadLocalReviewAction(storageDir, actionId = "") {
   }
 }
 
-export async function attachLocalReviewActions(analyzedThreads = [], { storageDir, baseUrl = "http://localhost:4318" } = {}) {
+export async function syncReviewAction(action = {}, { endpoint = "", token = "", timeoutMs = 8000 } = {}) {
+  if (!action?.id || !action?.viewToken) {
+    return syncFailure("Review action is missing an id or token.");
+  }
+
+  if (!endpoint || !token) {
+    return syncFailure("Hosted review sync endpoint or token is missing.", {
+      skipped: true
+    });
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ action }),
+      signal: syncTimeoutSignal(timeoutMs)
+    });
+    const text = await response.text();
+    let payload = {};
+
+    try {
+      payload = text ? JSON.parse(text) : {};
+    } catch {
+      payload = { message: text };
+    }
+
+    if (!response.ok || payload.ok === false) {
+      return syncFailure(payload.error || payload.message || `Hosted review sync failed with status ${response.status}.`, {
+        status: response.status
+      });
+    }
+
+    return {
+      ok: true,
+      synced: true,
+      status: response.status,
+      syncedAt: new Date().toISOString(),
+      reviewUrl: payload.reviewUrls?.[0] || payload.reviewUrl || ""
+    };
+  } catch (error) {
+    return syncFailure(error instanceof Error ? error.message : String(error));
+  }
+}
+
+export async function attachLocalReviewActions(
+  analyzedThreads = [],
+  {
+    storageDir,
+    baseUrl = "http://localhost:4318",
+    localBaseUrl = "http://localhost:4318",
+    syncEndpoint = "",
+    syncToken = "",
+    syncTimeoutMs = 8000
+  } = {}
+) {
   const enhanced = [];
-  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
+  const publicBaseUrl = cleanBaseUrl(baseUrl);
+  const fallbackBaseUrl = cleanBaseUrl(localBaseUrl || baseUrl);
 
   for (const item of analyzedThreads) {
     if (!isCoreBusinessThread(item)) {
@@ -206,13 +291,35 @@ export async function attachLocalReviewActions(analyzedThreads = [], { storageDi
 
     const actionRecord = createReviewActionRecord(item);
     await saveLocalReviewAction(storageDir, actionRecord);
+    const syncResult = await syncReviewAction(actionRecord, {
+      endpoint: syncEndpoint,
+      token: syncToken,
+      timeoutMs: syncTimeoutMs
+    });
+    const publishedReviewUrl = syncResult.ok
+      ? (syncResult.reviewUrl || reviewActionUrl(publicBaseUrl, actionRecord))
+      : reviewActionUrl(fallbackBaseUrl, actionRecord);
+    const hostedSync = {
+      ok: syncResult.ok,
+      synced: syncResult.synced,
+      syncedAt: syncResult.syncedAt || "",
+      endpoint: syncEndpoint ? syncEndpoint.replace(/\?.*$/, "") : "",
+      message: syncResult.ok ? "Hosted review packet synced." : syncResult.message
+    };
+    const savedActionRecord = {
+      ...actionRecord,
+      hostedSync
+    };
+
+    await saveLocalReviewAction(storageDir, savedActionRecord);
 
     enhanced.push({
       ...item,
-      reviewUrl: `${cleanBaseUrl}/review-action.html?id=${encodeURIComponent(actionRecord.id)}&token=${encodeURIComponent(actionRecord.viewToken)}`,
-      reviewAction: sanitizeReviewAction(actionRecord),
-      proposedActions: actionRecord.proposedActions,
-      executableActions: actionRecord.executableActions
+      reviewUrl: publishedReviewUrl,
+      reviewAction: sanitizeReviewAction(savedActionRecord),
+      proposedActions: savedActionRecord.proposedActions,
+      executableActions: savedActionRecord.executableActions,
+      reviewSync: hostedSync
     });
   }
 

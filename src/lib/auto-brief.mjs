@@ -52,6 +52,7 @@ export async function runAutoBrief({
   bundlePath,
   gmailConfig = {},
   googleWorkspaceConfig = {},
+  signatureExtractionConfig = {},
   messagesConfig = {},
   hours = 24,
   since = "",
@@ -116,7 +117,26 @@ export async function runAutoBrief({
   });
   const enrichedThreads = await enrichThreadsWithWorkspaceArtifacts(emailThreads, {
     config: gmailConfig,
+    signatureExtractionConfig: {
+      ...(aiBriefConfig?.apiKey ? {
+        apiKey: aiBriefConfig.apiKey,
+        model: aiBriefConfig.model,
+        endpoint: aiBriefConfig.endpoint,
+        timeoutMs: aiBriefConfig.timeoutMs
+      } : {}),
+      internalDomains: resolvedBundle.internalDomains ?? [],
+      ...signatureExtractionConfig
+    },
     ...googleWorkspaceConfig
+  });
+  const signatureCount = enrichedThreads.reduce(
+    (total, thread) => total + (thread.workspaceArtifacts?.emailSignatures?.length ?? 0),
+    0
+  );
+  await progress("workspace_artifacts", {
+    label: "Checked Gmail attachments, Workspace links, and signature contacts",
+    emailThreads: enrichedThreads.length,
+    emailSignatureContacts: signatureCount
   });
   await progress("classify", {
     label: "Classifying emails into customer, supplier, internal, and noise",

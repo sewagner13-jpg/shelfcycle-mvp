@@ -29,6 +29,7 @@ export default async () => {
   const result = await runAutoBrief({
     bundle,
     gmailConfig: settings.gmailConfig,
+    signatureExtractionConfig: settings.signatureExtractionConfig ?? settings.openAiConfig ?? {},
     recipient,
     send: true,
     hours,

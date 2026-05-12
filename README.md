@@ -8,6 +8,8 @@ Working codebase for two connected ClearEdge programs:
 2. `Hosted Daily Email Intelligence`
    A scheduled Gmail triage service that uses a shared ClearEdge knowledge bundle so the daily brief understands customers, contacts, products, and supplier context.
 
+Finance Center moved to `https://clearedge-finance-center.netlify.app` and is maintained in `/Users/seanwagner/Documents/Playground/clearedge-finance-center`. This old ShelfCycle MVP no longer contains Finance Center pages, APIs, local-sync commands, or docs.
+
 What it does:
 - Classifies pasted input as a `call report`, `new product`, `new customer`, `new contact`, or `new location`
 - Supports pasted `email threads` as a first-class workflow
@@ -27,12 +29,12 @@ What it does:
 - Includes a hosted-ready Gmail brief runner that can:
   - fetch recent Gmail threads
   - inspect Gmail attachments and Google Drive links
+  - extract visible email signatures and OCR small inline signature images for contact/company details
   - classify threads as customer, supplier, employee/internal, or solicitation
   - determine `needs attention` vs `waiting on others`
   - produce a daily triage brief
   - optionally send the brief back by email
 - Includes a local Messages memory source so iMessage/SMS threads on this Mac can produce a separate `Message Memory` section in the daily brief
-
 What it does not do yet:
 - Log into ShelfCycle on its own
 - Submit changes back into ShelfCycle automatically
@@ -385,6 +387,7 @@ Approval-first review links:
 - Core customer/supplier items in local briefs get a `Review:` link to a local review packet
 - Suggested next steps also get a `Decide in ChatGPT:` link so Sean can discuss the suggested next step before choosing a platform action
 - Review packets are stored locally under `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/review-actions/`
+- New local daily briefs sync review packets to the hosted site when `.local/knowledge-sync-token.local` or `KNOWLEDGE_SYNC_TOKEN` is available, so emailed `Review Packet` links open from phones and other computers at `https://clearedge-daily-brief.netlify.app`
 - Nothing is written to ShelfCycle unless Sean opens the local submit page and explicitly approves an action
 
 Disable the scheduled job:
@@ -405,6 +408,8 @@ Core modules:
 Netlify functions:
 - knowledge sync: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/knowledge-sync.mjs`
 - settings sync: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/settings-sync.mjs`
+- review packet sync: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/review-action-sync.mjs`
+- hosted review packet load: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/load-review-action.mjs`
 - manual run: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/run-brief.mjs`
 - latest brief: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/latest-brief.mjs`
 - scheduled run: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/netlify/functions/daily-brief-scheduled.mjs`
@@ -449,6 +454,29 @@ node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/local-sync/get-r
 
 Without `drive.readonly`, the brief still uses Gmail attachments and can detect Drive links, but it cannot resolve linked Google file names/owners.
 
+### Gmail Signature Extraction
+
+Daily brief runs now treat Gmail signatures as structured business contact evidence before review packets are created:
+- text signatures are parsed from the latest external message body
+- small inline image signatures such as `image001.jpg` can be OCR'd with OpenAI vision when an API key is configured
+- extracted fields include name, title, email, office/mobile/fax phone, company, website, and address
+- review packets use those fields to prefill supplier/customer/contact actions after Sean approval
+
+Configuration uses the existing OpenAI setup. Add optional `signatureExtractionConfig` to hosted/local settings to override defaults:
+
+```json
+{
+  "signatureExtractionConfig": {
+    "enabled": true,
+    "model": "gpt-4.1-mini",
+    "maxImagesPerThread": 4,
+    "maxImageBytes": 750000
+  }
+}
+```
+
+If `signatureExtractionConfig.apiKey` is omitted, the runner falls back to `aiBriefConfig.apiKey` or `OPENAI_API_KEY`. No raw signature images are stored in review packets; only structured extracted fields and source metadata are retained.
+
 ## Hosted Sync Flow
 
 1. Export or generate a knowledge bundle locally.
@@ -479,13 +507,27 @@ node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/local-sync/push-
   --token YOUR_SYNC_TOKEN
 ```
 
-5. Trigger a dry-run hosted brief:
+5. Optional: push local review packets to the hosted review store so existing local review links can be opened remotely:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/apps/local-sync/push-review-actions.mjs \
+  --endpoint https://clearedge-daily-brief.netlify.app/api/review-action-sync \
+  --token YOUR_SYNC_TOKEN
+```
+
+6. Trigger a dry-run hosted brief:
 
 ```bash
 curl -X POST https://clearedge-daily-brief.netlify.app/api/run-brief \
   -H "content-type: application/json" \
   -H "authorization: Bearer YOUR_SYNC_TOKEN" \
   --data '{"send":false}'
+```
+
+Run a link health check:
+
+```bash
+node /Users/seanwagner/Documents/Playground/shelfcycle-mvp/scripts/link-health-check.mjs
 ```
 
 Template:

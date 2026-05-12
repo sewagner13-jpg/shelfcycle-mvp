@@ -1,7 +1,6 @@
 const titleEl = document.querySelector("#review-title");
 const ledeEl = document.querySelector("#review-lede");
 const relationshipChipEl = document.querySelector("#relationship-chip");
-const siloChipEl = document.querySelector("#silo-chip");
 const stateChipEl = document.querySelector("#state-chip");
 const createdAtEl = document.querySelector("#created-at");
 const availableActionsEl = document.querySelector("#available-actions");
@@ -19,6 +18,10 @@ const openChatGptEl = document.querySelector("#open-chatgpt");
 const addPacketToShelfCycleEl = document.querySelector("#add-packet-to-shelfcycle");
 const sectionShelfCycleLinks = document.querySelectorAll(".add-shelfcycle-section");
 const reviewShelfCyclePreviewEl = document.querySelector("#review-shelfcycle-preview");
+const operatorPacketEl = document.querySelector("#operator-packet");
+const operatorNextStepEl = document.querySelector("#operator-next-step");
+const operatorWhyEl = document.querySelector("#operator-why");
+const shelfCycleStatusChipEl = document.querySelector("#shelfcycle-status-chip");
 
 const LOCAL_MVP_API_BASE = "http://localhost:4318";
 let currentAction = null;
@@ -108,6 +111,210 @@ function formatParticipants(participants = []) {
       return `- ${label}${participant.email ? ` <${participant.email}>` : ""}${participant.domain ? ` | ${participant.domain}` : ""}`;
     })
     .join("\n");
+}
+
+function compactText(value = "") {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripRawExtractionNoise(value = "") {
+  return compactText(value)
+    .replace(/^\s*#{1,6}\s*ClearEdge Intelligence Brief[\s\S]*?(?=\n\s*Thread Summary:|\n\s*Interaction Type:|$)/i, "")
+    .replace(/\sAll the best,?[\s\S]*$/i, "")
+    .replace(/\sBest regards,?[\s\S]*$/i, "")
+    .replace(/\sThanks,?[\s\S]*$/i, "")
+    .replace(/\b(?:old school crm|who needs ai|extracted gmail signatures)[\s\S]*$/i, "")
+    .trim();
+}
+
+function splitReadyNoteSections(summary = "") {
+  const sections = {};
+  let current = "";
+
+  for (const line of compactText(summary).split("\n")) {
+    const header = line.match(/^([A-Za-z][A-Za-z /-]{1,40}):\s*$/);
+
+    if (header) {
+      current = header[1].trim();
+      sections[current] = [];
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    const item = line.replace(/^\s*-\s*/, "").trim();
+
+    if (item) {
+      sections[current].push(stripRawExtractionNoise(item));
+    }
+  }
+
+  return sections;
+}
+
+function firstSectionItem(sections = {}, label = "") {
+  return (sections[label] ?? []).find(Boolean) || "";
+}
+
+function sentence(value = "", fallback = "") {
+  const text = stripRawExtractionNoise(value || fallback);
+
+  if (!text) {
+    return fallback;
+  }
+
+  return text.length > 260 ? `${text.slice(0, 257).trim()}...` : text;
+}
+
+function operatorLede(action = {}) {
+  const note = notePreviewFromAction(action);
+  const sections = splitReadyNoteSections(note.summary);
+  const summary = firstSectionItem(sections, "Summary") || action.briefAi?.why || action.subject;
+  const nextStep = firstSectionItem(sections, "Next step") || action.briefAi?.action;
+  const parts = [
+    sentence(summary, "Review this packet manually before updating ShelfCycle or following up."),
+    nextStep ? `Next: ${sentence(nextStep)}` : ""
+  ].filter(Boolean);
+
+  return parts.join(" ");
+}
+
+function operatorCardHtml(title = "", value = "", tone = "") {
+  return `
+    <article class="operator-card ${tone ? `operator-card-${escapeHtml(tone)}` : ""}">
+      <span>${escapeHtml(title)}</span>
+      <p>${escapeHtml(sentence(value, "No clear detail found."))}</p>
+    </article>
+  `;
+}
+
+function listCardHtml(title = "", items = [], tone = "") {
+  const cleanItems = items.map((item) => sentence(item)).filter(Boolean).slice(0, 5);
+
+  return `
+    <article class="operator-card ${tone ? `operator-card-${escapeHtml(tone)}` : ""}">
+      <span>${escapeHtml(title)}</span>
+      ${
+        cleanItems.length
+          ? `<ul>${cleanItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+          : "<p>No clear detail found.</p>"
+      }
+    </article>
+  `;
+}
+
+function actionLabels(action = {}) {
+  return (action.proposedActions ?? [])
+    .map((item) => {
+      const status = item.executable ? "ready for approval" : "preview only";
+      return `${item.displayLabel || actionButtonLabel(item)} (${status})`;
+    })
+    .slice(0, 4);
+}
+
+function matchCandidates(matches = {}, keys = []) {
+  return keys.flatMap((key) =>
+    (matches[key] ?? []).map((entry) => ({
+      ...(entry?.candidate ?? entry),
+      score: entry?.score
+    }))
+  );
+}
+
+function candidateLabel(candidate = {}) {
+  return candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
+}
+
+function candidateRelationship(candidate = {}) {
+  return String(candidate.companyType || candidate.type || candidate.raw?.company_type || "").trim().toLowerCase();
+}
+
+function shelfCycleStatusLabel(action = {}) {
+  const matches = action.matches ?? action.analysis?.matches ?? {};
+  const customer = matchCandidates(matches, ["customer", "customers"]).find((candidate) => candidateLabel(candidate));
+  const supplier = matchCandidates(matches, ["supplier", "suppliers"]).find((candidate) => candidateLabel(candidate));
+  const contacts = matchCandidates(matches, ["contact", "contacts"]);
+  const customerContact = contacts.find((candidate) => candidateRelationship(candidate) === "customer" && candidateLabel(candidate));
+  const supplierContact = contacts.find((candidate) => candidateRelationship(candidate) === "supplier" && candidateLabel(candidate));
+  const creates = action.suggestedCreates ?? action.analysis?.suggestedCreates ?? [];
+
+  if (customer) {
+    return `Existing customer: ${candidateLabel(customer)}`;
+  }
+
+  if (supplier) {
+    return `Existing supplier: ${candidateLabel(supplier)}`;
+  }
+
+  if (customerContact) {
+    return `Existing customer contact: ${candidateLabel(customerContact)}`;
+  }
+
+  if (supplierContact) {
+    return `Existing supplier contact: ${candidateLabel(supplierContact)}`;
+  }
+
+  if (creates.some((item) => item.type === "customer")) {
+    return "No existing customer found; create candidate available.";
+  }
+
+  if (creates.some((item) => item.type === "supplier")) {
+    return "No existing supplier found; create candidate available.";
+  }
+
+  return "No confirmed ShelfCycle match.";
+}
+
+function renderOperatorPacket(action = {}) {
+  if (!operatorPacketEl) {
+    return;
+  }
+
+  const note = notePreviewFromAction(action);
+  const sections = splitReadyNoteSections(note.summary);
+  const summary = firstSectionItem(sections, "Summary") || action.summary || action.subject;
+  const status = firstSectionItem(sections, "Decision / status") || "No final decision was identified in this packet.";
+  const nextStep = firstSectionItem(sections, "Next step") || action.briefAi?.action || "Review and decide whether this belongs in ShelfCycle.";
+  const variables = sections["Key variables"] ?? [];
+  const documents = sections["Documents referenced"] ?? [];
+  const source = sections.Source ?? [];
+  const actions = actionLabels(action);
+  const shelfCycleStatus = shelfCycleStatusLabel(action);
+
+  if (operatorNextStepEl) {
+    operatorNextStepEl.textContent = sentence(nextStep, "Review and decide whether this belongs in ShelfCycle.");
+  }
+
+  if (operatorWhyEl) {
+    operatorWhyEl.textContent = sentence(summary, "No clear summary was generated for this packet.");
+  }
+
+  if (shelfCycleStatusChipEl) {
+    shelfCycleStatusChipEl.textContent = shelfCycleStatus;
+  }
+
+  operatorPacketEl.innerHTML = [
+    operatorCardHtml("What happened", summary, "primary"),
+    operatorCardHtml("Decision / status", status),
+    operatorCardHtml("Next step", nextStep, "accent"),
+    operatorCardHtml("ShelfCycle status", shelfCycleStatus),
+    listCardHtml("ShelfCycle options", actions, actions.length ? "" : "muted"),
+    listCardHtml("Key variables", variables, "muted"),
+    listCardHtml("Documents", documents, documents.length ? "" : "muted"),
+    listCardHtml("Source", source, "muted")
+  ].join("");
+}
+
+function formatReadyNoteDisplay(action = {}) {
+  const note = notePreviewFromAction(action);
+
+  return note.summary || "No clean ShelfCycle note was generated for this packet.";
 }
 
 function isPdfDocument(item = {}) {
@@ -202,7 +409,18 @@ function formatOwnerRead(briefAi = null) {
   return lines.filter((line) => line !== "").join("\n");
 }
 
-function formatDraftNoteDisplay(draftNote = null) {
+function formatDraftNoteDisplay(draftNote = null, action = {}) {
+  if (action?.shelfCycleReadyNote?.summary) {
+    const note = notePreviewFromAction(action);
+
+    return [
+      note.title ? `Title: ${note.title}` : "",
+      note.type ? `Type: ${note.type}` : "",
+      note.customer ? `Customer: ${note.customer}` : "",
+      note.summary ? `Note:\n${note.summary}` : ""
+    ].filter(Boolean).join("\n\n");
+  }
+
   if (!draftNote) {
     return "No note draft was created for this packet.";
   }
@@ -739,19 +957,19 @@ function renderAvailableActions(action = {}) {
 function renderAction(action = {}) {
   currentAction = action;
   titleEl.textContent = action.subject || "ClearEdge review packet";
-  ledeEl.textContent = action.summary || "Review this packet manually before updating ShelfCycle or following up.";
+  ledeEl.textContent = operatorLede(action);
   relationshipChipEl.textContent = action.relationship?.relationship || "-";
-  siloChipEl.textContent = action.silo?.name || "-";
   stateChipEl.textContent = action.state?.state || "-";
   createdAtEl.textContent = formatDate(action.createdAt);
+  renderOperatorPacket(action);
   renderAvailableActions(action);
   renderReviewShelfCyclePreview(action);
   setOutput(participantsEl, formatParticipants(action.externalParticipants));
-  setOutput(summaryEl, action.summary || "None");
+  setOutput(summaryEl, formatReadyNoteDisplay(action));
   setOutput(ownerReadEl, formatOwnerRead(action.briefAi));
   setOutput(roleWorklistsEl, formatRoleWorklists(action.roleWorklists ?? {}));
   setOutput(warningsEl, (action.warnings ?? []).length ? action.warnings.join("\n") : "None");
-  setOutput(draftNoteEl, formatDraftNoteDisplay(action.draftNote));
+  setOutput(draftNoteEl, formatDraftNoteDisplay(action.draftNote, action));
   setOutput(writePlanEl, formatWritePlanDisplay(action.writePlan));
   setOutput(suggestedCreatesEl, formatSuggestedCreatesDisplay(action.suggestedCreates ?? []));
   renderDocuments(action.workspaceArtifacts ?? {});

@@ -1,4 +1,9 @@
 import { asTitle, compactWhitespace, firstNonEmpty, isLikelyCompanyName } from "./normalize.mjs";
+import {
+  inferredCompanyName,
+  preferredExternalParticipant,
+  preferredSuggestedContact
+} from "./business-email-identity.mjs";
 
 export const SHELFCYCLE_CUSTOMER_FIELDS = Object.freeze([
   {
@@ -223,9 +228,10 @@ function companyNameFromDomain(domain = "") {
 
 export function collectCustomerCreateFields(reviewAction = {}, context = {}) {
   const suggestedCustomer = (reviewAction.suggestedCreates ?? []).find((item) => item.type === "customer") ?? {};
-  const suggestedContact = (reviewAction.suggestedCreates ?? []).find((item) => item.type === "contact") ?? {};
+  const suggestedContact = preferredSuggestedContact(reviewAction) ?? {};
   const fieldMap = fieldMapFromAiCandidate(reviewAction);
-  const participant = reviewAction.externalParticipants?.[0] ?? {};
+  const participant = preferredExternalParticipant(reviewAction);
+  const identity = inferredCompanyName(reviewAction, { relationship: "customer" });
   const allowPersonFieldsAsCompanyFields = reviewAction.workflow !== "business_card";
   const contextFields = allowPersonFieldsAsCompanyFields
     ? (context.fields ?? {})
@@ -237,7 +243,8 @@ export function collectCustomerCreateFields(reviewAction = {}, context = {}) {
         officePhone: "",
         mobilePhone: ""
       };
-  const domain = participant.domain ? `https://${participant.domain}` : "";
+  const participantDomain = identity.domain || participant.domain || "";
+  const domain = participantDomain ? `https://${participantDomain}` : "";
   const participantCompanyName = isLikelyCompanyName(participant.name)
     ? participant.name
     : "";
@@ -256,9 +263,10 @@ export function collectCustomerCreateFields(reviewAction = {}, context = {}) {
       reviewAction.fields?.companyName,
       fieldMap.customer,
       fieldMap.customer_name,
+      identity.subjectCompanyName,
       participantCompanyName,
       suggestedContact.companyName,
-      companyNameFromDomain(participant.domain)
+      identity.domainCompanyName || companyNameFromDomain(participant.domain)
     ),
     email: firstNonEmpty(
       contextFields.email,

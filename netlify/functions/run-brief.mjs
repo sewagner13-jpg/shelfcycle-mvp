@@ -38,6 +38,7 @@ export default async (req) => {
   const result = await runAutoBrief({
     bundle,
     gmailConfig: settings.gmailConfig,
+    signatureExtractionConfig: settings.signatureExtractionConfig ?? settings.openAiConfig ?? {},
     recipient,
     send,
     hours: payload.hours ?? settings.hours ?? Number.parseInt(getEnv("DAILY_BRIEF_HOURS", "24"), 10),

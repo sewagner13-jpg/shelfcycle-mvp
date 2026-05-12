@@ -123,6 +123,78 @@ test("analyzeThread classifies customer thread and detects waiting state", () =>
   assert.ok(result.analysis.draftNote.summary.includes("ACCESS Organosilane G301"));
 });
 
+test("analyzeThread turns extracted Gmail signatures into supplier and contact create candidates", () => {
+  const thread = {
+    id: "thread-green-chemical",
+    messages: [
+      {
+        id: "msg-green-chemical",
+        threadId: "thread-green-chemical",
+        internalDate: String(Date.parse("2026-05-12T10:00:00Z")),
+        snippet: "It was a pleasure talking with you at the show. I have CCed our Monomer Salesperson.",
+        payload: {
+          headers: [
+            { name: "From", value: "Doyun Kim <dykim1@korgc.com>" },
+            { name: "To", value: "Sean Wagner <sean@clear-edge.net>" },
+            { name: "Subject", value: "RE: Green Chemical/ ClearEdge ACS follow-up" }
+          ],
+          body: {
+            data: encodeBody("It was a pleasure talking with you at the show. I have CCed our Monomer Salesperson.")
+          }
+        }
+      }
+    ],
+    workspaceArtifacts: {
+      attachments: [],
+      driveFileIds: [],
+      driveFiles: [],
+      driveScopeAvailable: true,
+      driveError: "",
+      emailSignatures: [
+        {
+          personName: "Doyun Kim",
+          title: "Manager | Chemical Sales team",
+          email: "dykim1@korgc.com",
+          phone: "+82-2-3158-8827",
+          mobilePhone: "+82-10-8824-7318",
+          faxPhone: "+82-2-3158-8820",
+          companyName: "Green Chemical",
+          website: "http://www.korgc.com",
+          streetAddress: "15F, Changgang Building, 86, Mapo-daero, Mapo-gu, Seoul, Korea (04168)",
+          city: "Seoul",
+          zip: "04168",
+          country: "Korea",
+          confidence: 0.9
+        }
+      ]
+    }
+  };
+  const analyzed = analyzeThread(thread, {
+    internalDomains: ["clear-edge.net"],
+    customers: [],
+    suppliers: [],
+    contacts: [],
+    products: [],
+    locations: [],
+    lookups: {
+      supplierDomains: [],
+      supplierContactEmails: [],
+      customerDomains: [],
+      customerContactEmails: []
+    }
+  });
+
+  const supplier = analyzed.analysis.suggestedCreates.find((item) => item.type === "supplier");
+  const contact = analyzed.analysis.suggestedCreates.find((item) => item.type === "contact");
+
+  assert.equal(supplier.companyName, "Green Chemical");
+  assert.equal(supplier.website, "http://www.korgc.com");
+  assert.equal(supplier.street1.includes("Mapo-daero"), true);
+  assert.equal(contact.name, "Doyun Kim");
+  assert.equal(contact.title, "Manager | Chemical Sales team");
+  assert.equal(contact.mobilePhone, "+82-10-8824-7318");
+});
+
 test("analyzeThread keeps supplier contacts out of the customer bucket", () => {
   const bundle = createKnowledgeBundle({
     referenceData: {
@@ -676,6 +748,9 @@ test("buildDailyBrief can group top actions by company and business type", () =>
   assert.ok(byCompany.includes("<h3>ACCESS Rudolf Technologies</h3>"));
   assert.ok(byCompany.includes("Create Customer"));
   assert.ok(byCompany.includes("review-submit.html"));
+  assert.ok(byCompany.includes("ShelfCycle status"));
+  assert.ok(byCompany.includes("Existing customer: Sun Coatings"));
+  assert.ok(byCompany.includes("Existing supplier: ACCESS Rudolf Technologies"));
   assert.ok(byType.includes("Organized by Business type"));
   assert.ok(byType.includes("<h3>Orders / POs</h3>"));
   assert.ok(byType.includes("<h3>Product Info / Documents</h3>"));

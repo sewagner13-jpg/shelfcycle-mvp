@@ -47,25 +47,39 @@
           </div>
         </header>
 
-        <section class="panel review-summary">
-          <div class="summary-grid">
-            <div class="stat-card">
-              <strong id="relationship-chip">-</strong>
-              <span>Relationship</span>
+        <section class="panel review-summary decision-panel">
+          <div class="decision-hero">
+            <div>
+              <p class="section-kicker">Recommended next step</p>
+              <h2 id="operator-next-step">Loading packet...</h2>
+              <p id="operator-why" class="decision-why">Review packet is loading.</p>
             </div>
-            <div class="stat-card">
-              <strong id="silo-chip">-</strong>
-              <span>Silo</span>
-            </div>
-            <div class="stat-card">
-              <strong id="state-chip">-</strong>
-              <span>State</span>
-            </div>
-            <div class="stat-card">
-              <strong id="created-at">-</strong>
-              <span>Created</span>
+            <div class="decision-meta-grid">
+              <div class="stat-card">
+                <strong id="shelfcycle-status-chip">-</strong>
+                <span>ShelfCycle Status</span>
+              </div>
+              <div class="stat-card">
+                <strong id="relationship-chip">-</strong>
+                <span>Relationship</span>
+              </div>
+              <div class="stat-card">
+                <strong id="state-chip">-</strong>
+                <span>Packet Status</span>
+              </div>
+              <div class="stat-card">
+                <strong id="created-at">-</strong>
+                <span>Created</span>
+              </div>
             </div>
           </div>
+        </section>
+
+        <section class="panel operator-packet-panel">
+          <details class="technical-details">
+            <summary>Show packet details and source data</summary>
+            <div id="operator-packet" class="operator-packet-grid"></div>
+          </details>
         </section>
 
         <section class="record-page">
@@ -93,39 +107,42 @@
               <div id="review-shelfcycle-preview" class="shelfcycle-preview-stack"></div>
             </div>
 
-            <div class="output-grid review-output-grid">
-              <div class="result-section">
-                <div class="section-title-row">
-                  <h3>Participants</h3>
-                  <a class="button-link mini ghost add-shelfcycle-section" data-section="participants" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+            <details class="technical-details review-source-details">
+              <summary>Show source fields and parser output</summary>
+              <div class="output-grid review-output-grid">
+                <div class="result-section">
+                  <div class="section-title-row">
+                    <h3>Participants</h3>
+                    <a class="button-link mini ghost add-shelfcycle-section" data-section="participants" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="participants" class="text-block"></pre>
                 </div>
-                <pre id="participants" class="text-block"></pre>
-              </div>
 
-              <div class="result-section">
-                <div class="section-title-row">
-                  <h3>Warnings</h3>
-                  <a class="button-link mini ghost add-shelfcycle-section" data-section="warnings" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="result-section">
+                  <div class="section-title-row">
+                    <h3>Warnings</h3>
+                    <a class="button-link mini ghost add-shelfcycle-section" data-section="warnings" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="warnings" class="text-block"></pre>
                 </div>
-                <pre id="warnings" class="text-block"></pre>
-              </div>
 
-              <div class="result-section output-wide">
-                <div class="section-title-row">
-                  <h3>Owner Read / ShelfCycle Candidate</h3>
-                  <a class="button-link mini primary add-shelfcycle-section" data-section="owner-read" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="result-section output-wide">
+                  <div class="section-title-row">
+                    <h3>Owner Read / ShelfCycle Candidate</h3>
+                    <a class="button-link mini primary add-shelfcycle-section" data-section="owner-read" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="owner-read" class="text-block tall"></pre>
                 </div>
-                <pre id="owner-read" class="text-block tall"></pre>
-              </div>
 
-              <div class="result-section output-wide">
-                <div class="section-title-row">
-                  <h3>Summary</h3>
-                  <a class="button-link mini ghost add-shelfcycle-section" data-section="summary" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="result-section output-wide">
+                  <div class="section-title-row">
+                    <h3>Clean ShelfCycle Note</h3>
+                    <a class="button-link mini ghost add-shelfcycle-section" data-section="summary" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="summary" class="text-block tall"></pre>
                 </div>
-                <pre id="summary" class="text-block tall"></pre>
               </div>
-            </div>
+            </details>
           </div>
 
           <aside class="record-side panel">
@@ -137,43 +154,46 @@
               <span class="muted-pill">Review only</span>
             </div>
 
-            <div class="activity-feed">
-              <div class="activity-item">
-                <div class="section-title-row">
-                  <strong>Draft Note</strong>
-                  <a class="button-link mini primary add-shelfcycle-section" data-section="draft-note" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+            <details class="technical-details review-source-details">
+              <summary>Show packet reference fields</summary>
+              <div class="activity-feed">
+                <div class="activity-item">
+                  <div class="section-title-row">
+                    <strong>Draft Note</strong>
+                    <a class="button-link mini primary add-shelfcycle-section" data-section="draft-note" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="draft-note" class="text-block tall"></pre>
                 </div>
-                <pre id="draft-note" class="text-block tall"></pre>
-              </div>
-              <div class="activity-item">
-                <div class="section-title-row">
-                  <strong>Write Plan</strong>
-                  <a class="button-link mini ghost add-shelfcycle-section" data-section="write-plan" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="activity-item">
+                  <div class="section-title-row">
+                    <strong>Write Plan</strong>
+                    <a class="button-link mini ghost add-shelfcycle-section" data-section="write-plan" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="write-plan" class="text-block"></pre>
                 </div>
-                <pre id="write-plan" class="text-block"></pre>
-              </div>
-              <div class="activity-item">
-                <div class="section-title-row">
-                  <strong>Suggested Creates</strong>
-                  <a class="button-link mini primary add-shelfcycle-section" data-section="suggested-creates" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="activity-item">
+                  <div class="section-title-row">
+                    <strong>Suggested Creates</strong>
+                    <a class="button-link mini primary add-shelfcycle-section" data-section="suggested-creates" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="suggested-creates" class="text-block"></pre>
                 </div>
-                <pre id="suggested-creates" class="text-block"></pre>
-              </div>
-              <div class="activity-item">
-                <div class="section-title-row">
-                  <strong>Workspace Documents</strong>
-                  <a class="button-link mini ghost add-shelfcycle-section" data-section="documents" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="activity-item">
+                  <div class="section-title-row">
+                    <strong>Workspace Documents</strong>
+                    <a class="button-link mini ghost add-shelfcycle-section" data-section="documents" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <div id="documents" class="text-block"></div>
                 </div>
-                <div id="documents" class="text-block"></div>
-              </div>
-              <div class="activity-item">
-                <div class="section-title-row">
-                  <strong>Role Worklists</strong>
-                  <a class="button-link mini ghost add-shelfcycle-section" data-section="role-worklists" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                <div class="activity-item">
+                  <div class="section-title-row">
+                    <strong>Role Worklists</strong>
+                    <a class="button-link mini ghost add-shelfcycle-section" data-section="role-worklists" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+                  </div>
+                  <pre id="role-worklists" class="text-block tall"></pre>
                 </div>
-                <pre id="role-worklists" class="text-block tall"></pre>
               </div>
-            </div>
+            </details>
           </aside>
         </section>
       </main>

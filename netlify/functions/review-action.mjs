@@ -1,5 +1,6 @@
 import { loadReviewAction } from "./_shared/knowledge-store.mjs";
 import { collectExecutableActions, collectProposedActions } from "../../src/lib/shelfcycle-action-router.mjs";
+import { buildShelfCycleReadyNote } from "../../src/lib/shelfcycle-ready-note.mjs";
 
 function sanitizeActionRecord(action = {}) {
   const { viewToken, ...safe } = action;
@@ -29,14 +30,20 @@ export default async (req) => {
     return new Response("Invalid review token.", { status: 403 });
   }
 
-  const proposedActions = collectProposedActions(action);
+  const enrichedAction = {
+    ...action,
+    shelfCycleReadyNote: action.shelfCycleReadyNote?.source === "user_approved"
+      ? action.shelfCycleReadyNote
+      : buildShelfCycleReadyNote(action)
+  };
+  const proposedActions = collectProposedActions(enrichedAction);
 
   return Response.json({
     ok: true,
     action: {
-      ...sanitizeActionRecord(action),
+      ...sanitizeActionRecord(enrichedAction),
       proposedActions,
-      executableActions: collectExecutableActions(action)
+      executableActions: collectExecutableActions(enrichedAction)
     }
   });
 };

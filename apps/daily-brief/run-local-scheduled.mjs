@@ -23,6 +23,8 @@ const defaultSettingsPath = path.join(localDir, "hosted-brief-settings.local.jso
 const defaultMessagesConfigPath = path.join(localDir, "messages-memory-config.local.json");
 const defaultBriefControlPath = path.join(localDir, "brief-control.local.json");
 const defaultReviewActionsDir = path.join(localDir, "review-actions");
+const defaultPublicReviewBaseUrl = "https://clearedge-daily-brief.netlify.app";
+const defaultReviewSyncTokenPath = path.join(localDir, "knowledge-sync-token.local");
 const defaultLockDir = path.join(localDir, "daily-brief-runner.lock");
 const defaultWorkflowRunsDir = path.join(localDir, "workflow-runs");
 
@@ -33,7 +35,12 @@ function parseArgs(argv = []) {
     messagesMemoryConfig: defaultMessagesConfigPath,
     briefControl: defaultBriefControlPath,
     reviewActionsDir: defaultReviewActionsDir,
-    reviewBaseUrl: "http://localhost:4318",
+    reviewBaseUrl: process.env.CLEAREDGE_REVIEW_PUBLIC_BASE_URL || defaultPublicReviewBaseUrl,
+    localReviewBaseUrl: "http://localhost:4318",
+    reviewSyncEndpoint: process.env.CLEAREDGE_REVIEW_SYNC_ENDPOINT || "",
+    reviewSyncToken: process.env.KNOWLEDGE_SYNC_TOKEN || "",
+    reviewSyncTokenPath: process.env.CLEAREDGE_REVIEW_SYNC_TOKEN_PATH || defaultReviewSyncTokenPath,
+    noReviewSync: false,
     outDir: runsDir,
     hours: null,
     since: "",
@@ -88,6 +95,35 @@ function parseArgs(argv = []) {
     if (value === "--review-base-url") {
       args.reviewBaseUrl = argv[index + 1];
       index += 1;
+      continue;
+    }
+
+    if (value === "--local-review-base-url") {
+      args.localReviewBaseUrl = argv[index + 1] || "http://localhost:4318";
+      index += 1;
+      continue;
+    }
+
+    if (value === "--review-sync-endpoint") {
+      args.reviewSyncEndpoint = argv[index + 1] || "";
+      index += 1;
+      continue;
+    }
+
+    if (value === "--review-sync-token") {
+      args.reviewSyncToken = argv[index + 1] || "";
+      index += 1;
+      continue;
+    }
+
+    if (value === "--review-sync-token-file") {
+      args.reviewSyncTokenPath = argv[index + 1] || "";
+      index += 1;
+      continue;
+    }
+
+    if (value === "--no-review-sync") {
+      args.noReviewSync = true;
       continue;
     }
 
@@ -239,6 +275,57 @@ async function readJson(filePath, label) {
   }
 }
 
+async function readTextIfPresent(filePath = "") {
+  if (!filePath) {
+    return "";
+  }
+
+  try {
+    return (await readFile(path.resolve(filePath), "utf8")).trim();
+  } catch {
+    return "";
+  }
+}
+
+function cleanBaseUrl(value = "") {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+async function resolveReviewSyncConfig(args = {}, settings = {}) {
+  const reviewBaseUrl = cleanBaseUrl(
+    args.reviewBaseUrl ||
+    settings.reviewBaseUrl ||
+    settings.siteUrl ||
+    process.env.CLEAREDGE_REVIEW_PUBLIC_BASE_URL ||
+    defaultPublicReviewBaseUrl
+  );
+  const reviewSyncEndpoint = args.noReviewSync
+    ? ""
+    : (
+      args.reviewSyncEndpoint ||
+      settings.reviewSyncEndpoint ||
+      process.env.CLEAREDGE_REVIEW_SYNC_ENDPOINT ||
+      `${reviewBaseUrl}/api/review-action-sync`
+    );
+  const tokenFromFile = await readTextIfPresent(args.reviewSyncTokenPath);
+  const reviewSyncToken = args.noReviewSync
+    ? ""
+    : (
+      args.reviewSyncToken ||
+      process.env.KNOWLEDGE_SYNC_TOKEN ||
+      settings.reviewSyncToken ||
+      tokenFromFile
+    );
+
+  return {
+    reviewBaseUrl,
+    localReviewBaseUrl: cleanBaseUrl(args.localReviewBaseUrl || settings.localReviewBaseUrl || "http://localhost:4318"),
+    reviewSyncEndpoint,
+    reviewSyncToken,
+    enabled: Boolean(reviewSyncEndpoint && reviewSyncToken)
+  };
+}
+
 async function logLine(logPath, message) {
   await mkdir(path.dirname(logPath), { recursive: true });
   await writeFile(logPath, `${new Date().toISOString()} ${message}\n`, {
@@ -335,6 +422,8 @@ async function main() {
   const latestBriefPreviewPath = path.join(outDir, "latest-brief-preview.json");
   const logPath = path.join(outDir, "daily-brief-runner.log");
   const progressPath = path.join(outDir, "current-status.json");
+  const settings = await readJson(args.settings, "settings");
+  const reviewSyncConfig = await resolveReviewSyncConfig(args, settings);
   const startedAt = new Date().toISOString();
   const resolvedHours = effectiveLookbackHours({
     hours: args.hours ?? 24,
@@ -401,7 +490,8 @@ async function main() {
       groupBy: args.groupBy,
       briefPath,
       runSummaryPath,
-      reviewBaseUrl: args.reviewBaseUrl
+      reviewBaseUrl: reviewSyncConfig.reviewBaseUrl,
+      reviewSyncEnabled: reviewSyncConfig.enabled
     },
     artifacts: {
       briefPath,
@@ -465,6 +555,7 @@ async function main() {
       bundle,
       gmailConfig: settings.gmailConfig ?? {},
       googleWorkspaceConfig: settings.googleWorkspaceConfig ?? {},
+      signatureExtractionConfig: settings.signatureExtractionConfig ?? settings.openAiConfig ?? {},
       recipient: args.recipient || settings.recipient,
       hours: runHours,
       since: args.since,
@@ -489,13 +580,20 @@ async function main() {
       decorateAnalyzedThreads: (analyzedThreads) =>
         attachLocalReviewActions(analyzedThreads, {
           storageDir: path.resolve(args.reviewActionsDir),
-          baseUrl: args.reviewBaseUrl
+          baseUrl: reviewSyncConfig.reviewBaseUrl,
+          localBaseUrl: reviewSyncConfig.localReviewBaseUrl,
+          syncEndpoint: reviewSyncConfig.reviewSyncEndpoint,
+          syncToken: reviewSyncConfig.reviewSyncToken
         })
     });
 
     const messageMemory = result.messageMemory ?? {};
     const hiddenNoise = buildHiddenNoiseCleanupItems(result.analyzedThreads ?? []);
     const packetsGenerated = result.analyzedThreads?.filter((item) => item.reviewUrl).length ?? 0;
+    const emailSignatureContacts = result.analyzedThreads?.reduce(
+      (total, item) => total + (item.workspaceArtifacts?.emailSignatures?.length ?? 0),
+      0
+    ) ?? 0;
     const executableActions = result.analyzedThreads
       ?.flatMap((item) => item.reviewAction?.executableActions ?? item.executableActions ?? [])
       .length ?? 0;
@@ -517,11 +615,17 @@ async function main() {
       sent: Boolean(result.sendResult),
       sendResultId: result.sendResult?.id ?? "",
       emailThreads: result.analyzedThreads?.length ?? 0,
+      emailSignatureContacts,
       messageBusinessThreads: messageMemory.business_threads?.length ?? 0,
       unknownMessageContacts: messageMemory.unknown_contacts?.length ?? 0,
       unknownContacts: messageMemory.unknown_contacts ?? [],
       messageFollowups: messageMemory.suggested_followups?.length ?? 0,
       reviewLinks: packetsGenerated,
+      reviewBaseUrl: reviewSyncConfig.reviewBaseUrl,
+      reviewSyncEnabled: reviewSyncConfig.enabled,
+      hostedReviewLinks: result.analyzedThreads?.filter((item) =>
+        String(item.reviewUrl || "").startsWith(reviewSyncConfig.reviewBaseUrl)
+      ).length ?? 0,
       hiddenNoise,
       briefAi: result.briefAi,
       briefPath,
@@ -538,7 +642,8 @@ async function main() {
         gmail: {
           threadsProcessed: result.analyzedThreads?.length ?? 0,
           unansweredThreads: result.analyzedThreads?.filter((item) => item.state?.state === "needs_attention").length ?? 0,
-          highPriorityThreads: result.analyzedThreads?.filter((item) => item.priority === "high" || item.briefAi?.priority === "high").length ?? 0
+          highPriorityThreads: result.analyzedThreads?.filter((item) => item.priority === "high" || item.briefAi?.priority === "high").length ?? 0,
+          signatureContactsFound: emailSignatureContacts
         },
         messages: {
           businessThreadsFound: messageMemory.business_threads?.length ?? 0,
@@ -549,7 +654,9 @@ async function main() {
         review: {
           packetsGenerated,
           executableActions,
-          previewOnlyActions: Math.max(0, packetsGenerated - executableActions)
+          previewOnlyActions: Math.max(0, packetsGenerated - executableActions),
+          reviewBaseUrl: reviewSyncConfig.reviewBaseUrl,
+          syncEnabled: reviewSyncConfig.enabled
         },
         hiddenNoise,
         shelfcycle: {

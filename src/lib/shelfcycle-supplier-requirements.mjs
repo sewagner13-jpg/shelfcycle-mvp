@@ -1,4 +1,9 @@
 import { asTitle, compactWhitespace, firstNonEmpty, isLikelyCompanyName } from "./normalize.mjs";
+import {
+  inferredCompanyName,
+  preferredExternalParticipant,
+  preferredSuggestedContact
+} from "./business-email-identity.mjs";
 
 export const SHELFCYCLE_SUPPLIER_FIELDS = Object.freeze([
   {
@@ -229,11 +234,40 @@ function companyNameFromDomain(domain = "") {
   return clean ? asTitle(clean) : "";
 }
 
+function firstWebsiteFromText(expectedDomain = "", ...values) {
+  const text = values.map((value) => String(value || "")).join(" ");
+  const matches = text.match(/\bhttps?:\/\/(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s<>"')]+)?|\bwww\.[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s<>"')]+)?/gi) ?? [];
+  const expected = compactWhitespace(expectedDomain).toLowerCase().replace(/^www\./, "");
+
+  for (const raw of matches) {
+    const value = compactWhitespace(raw);
+    const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+    try {
+      const url = new URL(withProtocol);
+      const domain = url.hostname.toLowerCase().replace(/^www\./, "");
+
+      if (domain === "clear-edge.net") {
+        continue;
+      }
+
+      if (!expected || domain === expected) {
+        return withProtocol;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return "";
+}
+
 export function collectSupplierCreateFields(reviewAction = {}, context = {}) {
   const suggestedSupplier = (reviewAction.suggestedCreates ?? []).find((item) => item.type === "supplier") ?? {};
-  const suggestedContact = (reviewAction.suggestedCreates ?? []).find((item) => item.type === "contact") ?? {};
+  const suggestedContact = preferredSuggestedContact(reviewAction) ?? {};
   const fieldMap = fieldMapFromAiCandidate(reviewAction);
-  const participant = reviewAction.externalParticipants?.[0] ?? {};
+  const participant = preferredExternalParticipant(reviewAction);
+  const identity = inferredCompanyName(reviewAction, { relationship: "supplier" });
   const allowPersonFieldsAsCompanyFields = reviewAction.workflow !== "business_card";
   const contextFields = allowPersonFieldsAsCompanyFields
     ? (context.fields ?? {})
@@ -245,10 +279,19 @@ export function collectSupplierCreateFields(reviewAction = {}, context = {}) {
         officePhone: "",
         mobilePhone: ""
       };
-  const domain = participant.domain ? `https://${participant.domain}` : "";
+  const participantDomain = identity.domain || participant.domain || "";
+  const domain = participantDomain ? `https://${participantDomain}` : "";
   const participantCompanyName = isLikelyCompanyName(participant.name)
     ? participant.name
     : "";
+  const websiteFromText = firstWebsiteFromText(
+    participantDomain,
+    reviewAction.summary,
+    reviewAction.draftNote?.summary,
+    reviewAction.writePlan?.fields?.summary,
+    reviewAction.briefAi?.why,
+    reviewAction.briefAi?.keyDetails
+  );
 
   return normalizeSupplierCreateFields({
     ...reviewAction.writePlan?.fields,
@@ -265,9 +308,10 @@ export function collectSupplierCreateFields(reviewAction = {}, context = {}) {
       reviewAction.fields?.companyName,
       fieldMap.supplier,
       fieldMap.supplier_name,
+      identity.subjectCompanyName,
       participantCompanyName,
       suggestedContact.companyName,
-      companyNameFromDomain(participant.domain)
+      identity.domainCompanyName || companyNameFromDomain(participant.domain)
     ),
     email: firstNonEmpty(
       contextFields.email,
@@ -276,7 +320,7 @@ export function collectSupplierCreateFields(reviewAction = {}, context = {}) {
       fieldMap.email,
       allowPersonFieldsAsCompanyFields ? participant.email : ""
     ),
-    website: firstNonEmpty(contextFields.website, suggestedSupplier.website, reviewAction.fields?.website, fieldMap.website, domain),
+    website: firstNonEmpty(contextFields.website, suggestedSupplier.website, reviewAction.fields?.website, fieldMap.website, websiteFromText, domain),
     phone: firstNonEmpty(
       contextFields.phone,
       contextFields.phoneNumber,

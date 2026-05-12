@@ -1,12 +1,50 @@
+import { createSign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+
+const DEFAULT_GMAIL_SCOPES = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.send"
+];
 
 function base64UrlEncode(value = "") {
   return Buffer.from(value, "utf8").toString("base64url");
 }
 
+function escapeHeader(value = "") {
+  return String(value ?? "").replace(/[\r\n]+/g, " ").trim();
+}
+
+function quoteHeaderValue(value = "") {
+  return escapeHeader(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+}
+
+function foldBase64(value = "") {
+  return String(value).replace(/.{1,76}/g, "$&\n").trim();
+}
+
+function attachmentBodyToBase64(attachment = {}) {
+  const value = attachment.data ?? attachment.body ?? attachment.base64 ?? "";
+
+  if (Buffer.isBuffer(value)) {
+    return value.toString("base64");
+  }
+
+  if (attachment.encoding === "base64") {
+    return String(value).replace(/\s+/g, "");
+  }
+
+  return Buffer.from(String(value), "base64url").toString("base64");
+}
+
 function firstDefined(...values) {
   return values.find((value) => value !== undefined && value !== null && value !== "");
+}
+
+function normalizeScopes(value = DEFAULT_GMAIL_SCOPES) {
+  const raw = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
+  const scopes = raw.map((scope) => String(scope || "").trim()).filter(Boolean);
+  return scopes.length ? scopes : [...DEFAULT_GMAIL_SCOPES];
 }
 
 async function readJsonIfExists(filePath) {
@@ -25,20 +63,56 @@ async function readJsonIfExists(filePath) {
 export async function loadCredentials(config = {}) {
   const credentialsPath = firstDefined(config.credentialsPath, process.env.GMAIL_CREDENTIALS_PATH);
   const tokenPath = firstDefined(config.tokenPath, process.env.GMAIL_TOKEN_PATH);
+  const serviceAccountPath = firstDefined(
+    config.serviceAccountKeyPath,
+    config.serviceAccountPath,
+    process.env.GMAIL_SERVICE_ACCOUNT_KEY_PATH,
+    process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH
+  );
   const credentialsJson = firstDefined(config.credentialsJson, process.env.GMAIL_CREDENTIALS_JSON);
   const tokenJson = firstDefined(config.tokenJson, process.env.GMAIL_TOKEN_JSON);
+  const serviceAccountJson = firstDefined(
+    config.serviceAccountJson,
+    process.env.GMAIL_SERVICE_ACCOUNT_JSON,
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON
+  );
 
   const credentialsFile = credentialsJson ? JSON.parse(credentialsJson) : await readJsonIfExists(credentialsPath);
   const tokenFile = tokenJson ? JSON.parse(tokenJson) : await readJsonIfExists(tokenPath);
+  const serviceAccountFile = serviceAccountJson
+    ? JSON.parse(serviceAccountJson)
+    : await readJsonIfExists(serviceAccountPath);
 
   const installed = credentialsFile?.installed ?? credentialsFile?.web ?? {};
+  const serviceAccount = serviceAccountFile?.client_email
+    ? serviceAccountFile
+    : serviceAccountFile?.service_account ?? {};
+  const delegatedUser = firstDefined(
+    config.delegatedUser,
+    process.env.GMAIL_DELEGATED_USER,
+    process.env.GOOGLE_WORKSPACE_DELEGATED_USER,
+    ""
+  );
+  const user = firstDefined(config.user, process.env.GMAIL_USER, delegatedUser, tokenFile?.email, "me");
 
   return {
     clientId: firstDefined(config.clientId, process.env.GMAIL_CLIENT_ID, installed.client_id),
     clientSecret: firstDefined(config.clientSecret, process.env.GMAIL_CLIENT_SECRET, installed.client_secret),
     refreshToken: firstDefined(config.refreshToken, process.env.GMAIL_REFRESH_TOKEN, tokenFile?.refresh_token),
     accessToken: firstDefined(config.accessToken, process.env.GMAIL_ACCESS_TOKEN, tokenFile?.access_token),
-    user: firstDefined(config.user, process.env.GMAIL_USER, tokenFile?.email, "me")
+    serviceAccountEmail: firstDefined(
+      config.serviceAccountEmail,
+      process.env.GMAIL_SERVICE_ACCOUNT_EMAIL,
+      serviceAccount.client_email
+    ),
+    serviceAccountPrivateKey: firstDefined(
+      config.serviceAccountPrivateKey,
+      process.env.GMAIL_SERVICE_ACCOUNT_PRIVATE_KEY,
+      serviceAccount.private_key
+    ),
+    delegatedUser,
+    scopes: normalizeScopes(firstDefined(config.scopes, process.env.GMAIL_SCOPES, DEFAULT_GMAIL_SCOPES)),
+    user
   };
 }
 
@@ -55,6 +129,19 @@ async function fetchJson(url, options = {}) {
 
 export async function getAccessToken(config = {}) {
   const credentials = await loadCredentials(config);
+
+  if (credentials.serviceAccountEmail && credentials.serviceAccountPrivateKey) {
+    const subject = credentials.delegatedUser || credentials.user;
+
+    if (!subject || subject === "me") {
+      throw new Error("Missing delegated Gmail user for service account access.");
+    }
+
+    return getServiceAccountAccessToken({
+      ...credentials,
+      subject
+    });
+  }
 
   if (credentials.accessToken && !credentials.refreshToken) {
     return {
@@ -96,6 +183,59 @@ export async function getAccessToken(config = {}) {
   return {
     accessToken: payload.access_token,
     user: credentials.user
+  };
+}
+
+function serviceAccountAssertion({
+  serviceAccountEmail = "",
+  serviceAccountPrivateKey = "",
+  subject = "",
+  scopes = DEFAULT_GMAIL_SCOPES,
+  now = Math.floor(Date.now() / 1000)
+} = {}) {
+  const header = {
+    alg: "RS256",
+    typ: "JWT"
+  };
+  const claims = {
+    iss: serviceAccountEmail,
+    scope: normalizeScopes(scopes).join(" "),
+    aud: "https://oauth2.googleapis.com/token",
+    exp: now + 3600,
+    iat: now,
+    sub: subject
+  };
+  const unsigned = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claims))}`;
+  const signer = createSign("RSA-SHA256");
+  signer.update(unsigned);
+  signer.end();
+  const signature = signer.sign(serviceAccountPrivateKey, "base64url");
+  return `${unsigned}.${signature}`;
+}
+
+async function getServiceAccountAccessToken(credentials = {}) {
+  const assertion = serviceAccountAssertion(credentials);
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to get delegated Gmail access token: ${errorText}`);
+  }
+
+  const payload = await response.json();
+
+  return {
+    accessToken: payload.access_token,
+    user: credentials.subject
   };
 }
 
@@ -212,15 +352,77 @@ export async function fetchRecentThreads({
   return threads;
 }
 
-export async function sendEmail({ to, subject, body = "", html = "", config }) {
-  const contentType = html ? "text/html" : "text/plain";
-  const mime = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    `Content-Type: ${contentType}; charset=UTF-8`,
+export function buildMimeEmail({
+  to,
+  subject,
+  body = "",
+  html = "",
+  attachments = [],
+  boundary = `clearedge-${Date.now()}-${Math.random().toString(16).slice(2)}`
+} = {}) {
+  const safeTo = escapeHeader(to);
+  const safeSubject = escapeHeader(subject);
+  const normalizedAttachments = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+
+  if (!normalizedAttachments.length) {
+    const contentType = html ? "text/html" : "text/plain";
+
+    return [
+      `To: ${safeTo}`,
+      `Subject: ${safeSubject}`,
+      "MIME-Version: 1.0",
+      `Content-Type: ${contentType}; charset=UTF-8`,
+      "",
+      html || body
+    ].join("\n");
+  }
+
+  const lines = [
+    `To: ${safeTo}`,
+    `Subject: ${safeSubject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    `Content-Type: ${html ? "text/html" : "text/plain"}; charset=UTF-8`,
+    "Content-Transfer-Encoding: 8bit",
     "",
     html || body
-  ].join("\n");
+  ];
+
+  for (const attachment of normalizedAttachments) {
+    const filename = quoteHeaderValue(attachment.filename || attachment.name || "attachment");
+    const mimeType = escapeHeader(attachment.mimeType || attachment.contentType || "application/octet-stream");
+
+    lines.push(
+      `--${boundary}`,
+      `Content-Type: ${mimeType}; name="${filename}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-Disposition: attachment; filename="${filename}"`,
+      "",
+      foldBase64(attachmentBodyToBase64(attachment))
+    );
+  }
+
+  lines.push(`--${boundary}--`, "");
+
+  return lines.join("\n");
+}
+
+export async function sendEmail({ to, subject, body = "", html = "", config }) {
+  const mime = buildMimeEmail({ to, subject, body, html });
+
+  return gmailRequest("messages/send", {
+    method: "POST",
+    body: {
+      raw: base64UrlEncode(mime)
+    },
+    config
+  });
+}
+
+export async function sendEmailWithAttachments({ to, subject, body = "", html = "", attachments = [], config }) {
+  const mime = buildMimeEmail({ to, subject, body, html, attachments });
 
   return gmailRequest("messages/send", {
     method: "POST",

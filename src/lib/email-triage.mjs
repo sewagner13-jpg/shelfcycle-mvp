@@ -773,6 +773,22 @@ function formatWorkspaceArtifacts(workspaceArtifacts = {}) {
     sections.push("Google Drive Files: linked but metadata unavailable without drive.readonly scope");
   }
 
+  const signatures = (workspaceArtifacts.emailSignatures ?? [])
+    .map((signature) => [
+      signature.personName,
+      signature.title,
+      signature.companyName,
+      signature.email,
+      signature.phone || signature.mobilePhone,
+      signature.website
+    ].filter(Boolean).join(" | "))
+    .filter(Boolean)
+    .slice(0, 4);
+
+  if (signatures.length) {
+    sections.push(`Extracted Gmail Signatures:\n${signatures.map((item) => `- ${item}`).join("\n")}`);
+  }
+
   return sections;
 }
 
@@ -827,6 +843,142 @@ function threadToAnalysisText(thread = {}) {
   return sections.join("\n");
 }
 
+function signatureCompanyKind(signature = {}, relationship = {}) {
+  if (relationship.relationship === "supplier" || relationship.relationship === "customer") {
+    return relationship.relationship;
+  }
+
+  const text = `${signature.title || ""} ${signature.companyName || ""}`.toLowerCase();
+
+  if (/\b(supplier|manufacturer|producer|chemical sales|sales team|raw material|distributor)\b/.test(text)) {
+    return "supplier";
+  }
+
+  return "customer";
+}
+
+function contactCreateFromSignature(signature = {}, relationship = {}) {
+  const kind = signatureCompanyKind(signature, relationship);
+  const companyType = kind === "supplier" ? "Supplier" : "Customer";
+
+  return {
+    type: "contact",
+    name: compactWhitespace(signature.personName),
+    title: compactWhitespace(signature.title),
+    email: compactWhitespace(signature.email),
+    phone: compactWhitespace(signature.phone),
+    mobilePhone: compactWhitespace(signature.mobilePhone),
+    faxPhone: compactWhitespace(signature.faxPhone),
+    companyName: compactWhitespace(signature.companyName),
+    companyType,
+    website: compactWhitespace(signature.website),
+    streetAddress: compactWhitespace(signature.streetAddress),
+    streetAddress2: compactWhitespace(signature.streetAddress2),
+    city: compactWhitespace(signature.city),
+    stateRegion: compactWhitespace(signature.stateRegion),
+    zip: compactWhitespace(signature.zip),
+    country: compactWhitespace(signature.country),
+    source: "gmail_signature",
+    confidence: signature.confidence ?? 0
+  };
+}
+
+function companyCreateFromSignature(signature = {}, relationship = {}) {
+  const name = compactWhitespace(signature.companyName);
+
+  if (!name) {
+    return null;
+  }
+
+  const kind = signatureCompanyKind(signature, relationship);
+
+  if (kind === "supplier") {
+    return {
+      type: "supplier",
+      name,
+      companyName: name,
+      email: compactWhitespace(signature.email),
+      phone: compactWhitespace(signature.phone),
+      website: compactWhitespace(signature.website),
+      street1: compactWhitespace(signature.streetAddress),
+      street2: compactWhitespace(signature.streetAddress2),
+      city: compactWhitespace(signature.city),
+      stateRegion: compactWhitespace(signature.stateRegion),
+      zip: compactWhitespace(signature.zip),
+      country: compactWhitespace(signature.country),
+      source: "gmail_signature",
+      confidence: signature.confidence ?? 0
+    };
+  }
+
+  if (kind === "customer") {
+    return {
+      type: "customer",
+      name,
+      companyName: name,
+      email: compactWhitespace(signature.email),
+      phoneNumber: compactWhitespace(signature.phone),
+      website: compactWhitespace(signature.website),
+      streetAddress: compactWhitespace(signature.streetAddress),
+      streetAddress2: compactWhitespace(signature.streetAddress2),
+      city: compactWhitespace(signature.city),
+      stateRegion: compactWhitespace(signature.stateRegion),
+      zip: compactWhitespace(signature.zip),
+      country: compactWhitespace(signature.country),
+      prospect: true,
+      source: "gmail_signature",
+      confidence: signature.confidence ?? 0
+    };
+  }
+
+  return null;
+}
+
+function enrichAnalysisWithEmailSignatures(analysis = {}, relationship = {}, workspaceArtifacts = {}) {
+  const signatures = workspaceArtifacts.emailSignatures ?? [];
+
+  if (!signatures.length) {
+    return analysis;
+  }
+
+  const creates = [];
+
+  for (const signature of signatures) {
+    const companyCreate = companyCreateFromSignature(signature, relationship);
+
+    if (companyCreate) {
+      creates.push(companyCreate);
+    }
+
+    creates.push(contactCreateFromSignature(signature, relationship));
+  }
+
+  const byKey = new Map();
+
+  for (const item of [...creates, ...(analysis.suggestedCreates ?? [])]) {
+    const key = [
+      item.type,
+      item.email?.toLowerCase?.() || "",
+      compactWhitespace(item.name || item.companyName).toLowerCase()
+    ].join("|");
+
+    if (!key || byKey.has(key)) {
+      continue;
+    }
+
+    byKey.set(key, item);
+  }
+
+  return {
+    ...analysis,
+    suggestedCreates: [...byKey.values()],
+    rawExtracts: {
+      ...(analysis.rawExtracts ?? {}),
+      emailSignatures: signatures
+    }
+  };
+}
+
 export function analyzeThread(thread = {}, bundle = {}) {
   const events = (thread.messages ?? []).map(messageToEvent);
   const text = threadToAnalysisText(thread);
@@ -837,7 +989,7 @@ export function analyzeThread(thread = {}, bundle = {}) {
     locations: bundle.locations ?? [],
     clearedgeIntelligence: bundle.clearedgeIntelligence ?? bundle.notebookIntelligence ?? []
   };
-  const analysis = analyzeInput({
+  let analysis = analyzeInput({
     text,
     workflow: "email_thread",
     referenceData
@@ -855,6 +1007,7 @@ export function analyzeThread(thread = {}, bundle = {}) {
   const externalParticipants = dedupeAddresses(
     events.flatMap((event) => [event.from, ...event.to, ...event.cc]).filter((address) => address?.email)
   ).filter((address) => !isInternalEmail(address.email, bundle));
+  analysis = enrichAnalysisWithEmailSignatures(analysis, relationship, thread.workspaceArtifacts ?? {});
 
   return {
     source: thread.source ?? "gmail",

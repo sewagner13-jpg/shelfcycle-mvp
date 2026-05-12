@@ -477,6 +477,49 @@ test("daily brief supplier thread proposes supplier create when no strong ShelfC
   assert.ok(contact.warnings.includes("Select a ShelfCycle supplier before creating this contact."));
 });
 
+test("supplier create ignores Superhuman reminders and uses dominant business identity", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    subject: "RE: Green Chemical/ ClearEdge ACS follow-up",
+    workflow: "email_thread",
+    relationship: {
+      relationship: "supplier",
+      subtype: "core_supplier"
+    },
+    externalParticipants: [
+      { name: "", email: "jhkim2@korgc.com", domain: "korgc.com" },
+      { name: "", email: "dykim1@korgc.com", domain: "korgc.com" },
+      { name: "Reminder", email: "reminder@superhuman.com", domain: "superhuman.com" }
+    ],
+    matches: {
+      customer: [],
+      supplier: []
+    },
+    suggestedCreates: [
+      {
+        type: "contact",
+        name: "Reminder",
+        email: "reminder@superhuman.com",
+        companyName: "Superhuman"
+      },
+      {
+        type: "contact",
+        name: "",
+        email: "jhkim2@korgc.com",
+        companyName: "Korgc"
+      }
+    ]
+  }));
+  const supplier = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_CREATE);
+  const contact = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.CONTACT_CREATE);
+
+  assert.equal(supplier.executable, true);
+  assert.equal(supplier.fieldValues.name, "Green Chemical");
+  assert.equal(supplier.fieldValues.email, "jhkim2@korgc.com");
+  assert.equal(supplier.fieldValues.website, "https://korgc.com");
+  assert.equal(contact.fieldValues.email, "jhkim2@korgc.com");
+  assert.notEqual(contact.fieldValues.email, "reminder@superhuman.com");
+});
+
 test("daily brief supplier thread does not propose supplier create for a strong existing supplier id", () => {
   const actions = collectProposedActions(baseReviewAction({
     workflow: "email_thread",

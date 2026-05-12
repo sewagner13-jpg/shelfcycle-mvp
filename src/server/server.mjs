@@ -97,23 +97,32 @@ async function readBody(request) {
 
 async function serveStatic(requestPath, response) {
   const safePath = requestPath === "/" ? "/index.html" : requestPath;
-  const root = safePath.startsWith("/data/") ? dataRoot : publicRoot;
-  const localPath = path.join(root, safePath.replace(/^\/(?:data\/)?/, ""));
+  const localPaths = safePath.startsWith("/data/")
+    ? [
+      path.join(publicRoot, safePath.replace(/^\//, "")),
+      path.join(dataRoot, safePath.replace(/^\/data\//, ""))
+    ]
+    : [path.join(publicRoot, safePath.replace(/^\//, ""))];
 
-  try {
-    const contents = await readFile(localPath);
-    const extension = path.extname(localPath);
+  for (const localPath of localPaths) {
+    try {
+      const contents = await readFile(localPath);
+      const extension = path.extname(localPath);
 
-    response.writeHead(200, {
-      "content-type": MIME_TYPES[extension] ?? "application/octet-stream"
-    });
-    response.end(contents);
-  } catch {
-    response.writeHead(404, {
-      "content-type": "text/plain; charset=utf-8"
-    });
-    response.end("Not found");
+      response.writeHead(200, {
+        "content-type": MIME_TYPES[extension] ?? "application/octet-stream"
+      });
+      response.end(contents);
+      return;
+    } catch {
+      // Try the next static candidate.
+    }
   }
+
+  response.writeHead(404, {
+    "content-type": "text/plain; charset=utf-8"
+  });
+  response.end("Not found");
 }
 
 async function fetchReviewAction(reviewUrl = "") {
@@ -862,7 +871,9 @@ async function loadRawLocalReviewAction({ reviewActionId = "", token = "" } = {}
 function enrichReviewActionForResponse(action = {}) {
   const enrichedAction = {
     ...action,
-    shelfCycleReadyNote: action.shelfCycleReadyNote ?? buildShelfCycleReadyNote(action)
+    shelfCycleReadyNote: action.shelfCycleReadyNote?.source === "user_approved"
+      ? action.shelfCycleReadyNote
+      : buildShelfCycleReadyNote(action)
   };
   const proposedActions = collectProposedActions(enrichedAction);
 
