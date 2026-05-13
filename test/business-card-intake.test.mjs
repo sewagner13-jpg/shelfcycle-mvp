@@ -29,6 +29,24 @@ test("parseBusinessCardTextFallback extracts basic contact and company fields", 
   assert.equal(fields.stateRegion, "SC");
 });
 
+test("parseBusinessCardTextFallback extracts international phone numbers", () => {
+  const fields = parseBusinessCardTextFallback(`
+    Doyun Kim
+    Manager | Chemical Sales team
+    Green Chemical
+    Tel: +82-2-3158-8827
+    C.P +82-10-8824-7318
+    http://www.korgc.com
+  `);
+
+  assert.equal(fields.personName, "Doyun Kim");
+  assert.equal(fields.companyName, "Green Chemical");
+  assert.equal(fields.phone, "+82-2-3158-8827");
+  assert.equal(fields.mobilePhone, "+82-10-8824-7318");
+  assert.equal(fields.website, "http://www.korgc.com");
+});
+
+
 test("analyzeBusinessCard proposes customer prospect plus contact when no customer match exists", async () => {
   const result = await analyzeBusinessCard({
     text: `
@@ -69,6 +87,7 @@ test("analyzeBusinessCard proposes supplier plus supplier contact when hinted su
       MAK Chemicals
       kunal@makchem.example
       Mobile: 555-555-2222
+      makchem.example
     `,
     relationshipHint: "supplier",
     useWebResearch: false,
@@ -89,8 +108,9 @@ test("analyzeBusinessCard proposes supplier plus supplier contact when hinted su
   const action = createBusinessCardReviewAction({ analysis: result, baseUrl: "http://localhost:4318" });
   const supplierAction = action.proposedActions.find((item) => item.actionType === "supplier_create");
   const contactAction = action.proposedActions.find((item) => item.actionType === "contact_create");
-  assert.equal(supplierAction.fieldValues.email, "");
-  assert.equal(supplierAction.fieldValues.phone, "");
+  assert.equal(supplierAction.fieldValues.email, "kunal@makchem.example");
+  assert.equal(supplierAction.fieldValues.phone, "555-555-2222");
+  assert.equal(supplierAction.fieldValues.website, "https://makchem.example");
   assert.equal(contactAction.fieldValues.email, "kunal@makchem.example");
   assert.equal(contactAction.fieldValues.phone, "555-555-2222");
 });
@@ -295,4 +315,28 @@ test("extractBusinessCardWithAi uses Responses image input, web search, and pres
   assert.equal(result.fields.phone, "");
   assert.equal(result.fields.website, "https://surfacekoatings.com");
   assert.equal(result.warnings[0], "No public address verified.");
+});
+
+test("analyzeBusinessCard returns a structured failure when image-only AI extraction times out", async () => {
+  const fetchImpl = async (_url, options = {}) => new Promise((_resolve, reject) => {
+    options.signal?.addEventListener("abort", () => reject(new Error("aborted by test")), { once: true });
+  });
+
+  const result = await analyzeBusinessCard({
+    imageDataUrl: "data:image/jpeg;base64,abc123",
+    text: "",
+    relationshipHint: "supplier",
+    useWebResearch: false,
+    config: {
+      enabled: true,
+      apiKey: "test-key",
+      model: "test-model",
+      timeoutMs: 1
+    },
+    fetchImpl
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "OPENAI_VISION_FAILED");
+  assert.match(result.warnings.join(" "), /timed out after 1ms/);
 });

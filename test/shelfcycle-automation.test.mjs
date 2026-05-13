@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  classifyRecordEditButtonCandidate,
   contactTargetKindFromSubmission,
   mentionResultsForUnavailableEditor,
   typeMentionSegments
@@ -199,4 +200,43 @@ test("contactTargetKindFromSubmission resolves customer and supplier contact tar
   assert.equal(contactTargetKindFromSubmission({
     fields: { companyType: "Supplier" }
   }), "supplier");
+});
+
+test("classifyRecordEditButtonCandidate prefers upper-right edit icon buttons", () => {
+  const candidate = classifyRecordEditButtonCandidate({
+    text: "",
+    ariaLabel: "",
+    title: "",
+    className: "mantine-ActionIcon-root",
+    html: '<button><svg class="tabler-icon tabler-icon-edit"></svg></button>',
+    hasSvg: true,
+    top: 48,
+    right: 1320,
+    width: 42,
+    height: 42,
+    viewportWidth: 1440,
+    visible: true
+  });
+
+  assert.equal(candidate.hasEditSignal, true);
+  assert.equal(candidate.isUpperRight, true);
+  assert.ok(candidate.score >= 130);
+});
+
+test("classifyRecordEditButtonCandidate rejects unsafe upper-right action buttons", () => {
+  const candidate = classifyRecordEditButtonCandidate({
+    text: "Delete",
+    ariaLabel: "Delete supplier",
+    html: '<button><svg></svg></button>',
+    hasSvg: true,
+    top: 48,
+    right: 1320,
+    width: 42,
+    height: 42,
+    viewportWidth: 1440,
+    visible: true
+  });
+
+  assert.equal(candidate.unsafe, true);
+  assert.equal(candidate.score, -1);
 });

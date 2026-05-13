@@ -65,6 +65,53 @@ function normalizeSupplierCandidate(entry = {}) {
   };
 }
 
+function contactCompanyKind(contact = {}) {
+  const raw = compactWhitespace(contact.companyType ?? contact.relationshipType ?? contact.type ?? "").toLowerCase();
+
+  if (raw.includes("supplier")) {
+    return "supplier";
+  }
+
+  if (raw.includes("customer") || raw.includes("prospect")) {
+    return "customer";
+  }
+
+  return "";
+}
+
+function normalizeCompanyCandidateFromContact(entry = {}, kind = "") {
+  const candidate = entry.candidate ?? entry;
+  const contactKind = contactCompanyKind(candidate);
+
+  if (contactKind !== kind) {
+    return null;
+  }
+
+  const id = compactWhitespace(
+    kind === "supplier"
+      ? candidate.supplierId ?? candidate.companyId ?? candidate.accountId ?? ""
+      : candidate.customerId ?? candidate.companyId ?? candidate.accountId ?? ""
+  );
+  const label = compactWhitespace(candidate.companyName ?? candidate.company ?? candidate.accountName ?? "");
+
+  if (!id && !label) {
+    return null;
+  }
+
+  const confidence = normalizeConfidence(entry.confidence ?? entry.score ?? candidate.confidence ?? candidate.score, id ? 0.8 : 0.76);
+
+  return {
+    kind,
+    id,
+    label: label || id,
+    confidence,
+    matchReasons: [
+      `existing ShelfCycle ${kind} contact matched this company`,
+      candidate.email ? `matched contact email ${candidate.email}` : ""
+    ].filter(Boolean)
+  };
+}
+
 function dedupeCandidates(candidates = []) {
   const byKey = new Map();
 
@@ -82,9 +129,10 @@ function dedupeCandidates(candidates = []) {
 
 export function resolveCustomerTargets(reviewAction = {}, { selectedTarget = null } = {}) {
   const targetCandidates = dedupeCandidates(
-    (reviewAction.matches?.customer ?? [])
-      .map((entry) => normalizeCustomerCandidate(entry))
-      .filter(Boolean)
+    [
+      ...(reviewAction.matches?.customer ?? []).map((entry) => normalizeCustomerCandidate(entry)),
+      ...(reviewAction.matches?.contacts ?? []).map((entry) => normalizeCompanyCandidateFromContact(entry, "customer"))
+    ].filter(Boolean)
   );
 
   if (selectedTarget?.kind === "customer") {
@@ -120,9 +168,10 @@ export function resolveCustomerTargets(reviewAction = {}, { selectedTarget = nul
 
 export function resolveSupplierTargets(reviewAction = {}, { selectedTarget = null } = {}) {
   const targetCandidates = dedupeCandidates(
-    (reviewAction.matches?.supplier ?? reviewAction.matches?.suppliers ?? [])
-      .map((entry) => normalizeSupplierCandidate(entry))
-      .filter(Boolean)
+    [
+      ...((reviewAction.matches?.supplier ?? reviewAction.matches?.suppliers ?? []).map((entry) => normalizeSupplierCandidate(entry))),
+      ...(reviewAction.matches?.contacts ?? []).map((entry) => normalizeCompanyCandidateFromContact(entry, "supplier"))
+    ].filter(Boolean)
   );
 
   if (selectedTarget?.kind === "supplier") {

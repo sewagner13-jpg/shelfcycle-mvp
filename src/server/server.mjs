@@ -10,10 +10,12 @@ import { researchCompanyPublicInfo } from "../lib/customer-web-enrichment.mjs";
 import { importCsv } from "../lib/csv-import.mjs";
 import { createKnowledgeBundle } from "../lib/knowledge-bundle.mjs";
 import { addExclusion, loadBriefControl, saveBriefControl } from "../lib/brief-control.mjs";
-import { loadLocalReviewAction, saveLocalReviewAction, sanitizeReviewAction } from "../lib/local-review-actions.mjs";
+import { createReviewActionRecord, loadLocalReviewAction, saveLocalReviewAction, sanitizeReviewAction } from "../lib/local-review-actions.mjs";
 import { collectExecutableActions, collectProposedActions, findProposedAction, SHELFCYCLE_ACTION_TYPES, SHELFCYCLE_ERROR_CODES } from "../lib/shelfcycle-action-router.mjs";
 import { executeApprovedShelfCycleAction } from "../lib/shelfcycle-action-executor.mjs";
 import { fetchGmailAttachmentData, trashGmailThread } from "../lib/gmail-client.mjs";
+import { extractPdfText } from "../lib/pdf-text-extractor.mjs";
+import { extractProductDocumentPdfWithAi, refineProductDocumentWithAi } from "../lib/product-document-ai.mjs";
 import { customerRequirementsForFields } from "../lib/shelfcycle-customer-requirements.mjs";
 import { supplierRequirementsForFields } from "../lib/shelfcycle-supplier-requirements.mjs";
 import { buildShelfCycleReadyNote } from "../lib/shelfcycle-ready-note.mjs";
@@ -464,8 +466,11 @@ function extractBriefTopActions(briefHtml = "", limit = 5) {
       title: extractFirst(articleHtml, /<h3>([\s\S]*?)<\/h3>/i),
       time: extractFirst(articleHtml, /<strong>Time:<\/strong>\s*([\s\S]*?)<\/li>/i),
       type: extractFirst(articleHtml, /<strong>Type:<\/strong>\s*([\s\S]*?)<\/li>/i),
+      state: extractFirst(articleHtml, /<strong>Task state:<\/strong>\s*([\s\S]*?)<\/li>/i),
+      confidence: extractFirst(articleHtml, /<strong>Confidence:<\/strong>\s*([\s\S]*?)<\/li>/i),
       action: extractFirst(articleHtml, /<strong>Action:<\/strong>\s*([\s\S]*?)<\/li>/i),
       why: extractFirst(articleHtml, /<strong>Why:<\/strong>\s*([\s\S]*?)<\/li>/i),
+      shelfCycleStatus: extractFirst(articleHtml, /<strong>ShelfCycle status:<\/strong>\s*([\s\S]*?)<\/li>/i),
       shelfCycle: extractFirst(articleHtml, /<strong>ShelfCycle:<\/strong>\s*([\s\S]*?)<\/li>/i),
       risk: extractFirst(articleHtml, /<strong>Risk:<\/strong>\s*([\s\S]*?)<\/li>/i),
       links: extractBriefLinks(articleHtml)
@@ -553,6 +558,146 @@ async function getDailyBriefStatus() {
     lastRunSummaryPath: latestStructuredSummary ? LOCAL_DAILY_BRIEF_LATEST_SUMMARY_PATH : latestSummaryFile?.filePath ?? "",
     lastError: latestSummary?.ok === false ? latestSummary.error : "",
     recentLogLines: logLines.slice(-8)
+  };
+}
+
+function countReferenceItems(payload = {}) {
+  const arrayCount = (value) => Array.isArray(value) ? value.length : 0;
+  const objectCount = (value) => value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).length : 0;
+
+  return {
+    customers: arrayCount(payload.customers) || objectCount(payload.customerMap),
+    suppliers: arrayCount(payload.suppliers),
+    contacts: arrayCount(payload.contacts),
+    products: arrayCount(payload.products) || arrayCount(payload.normalizedProducts),
+    locations: arrayCount(payload.locations)
+  };
+}
+
+async function getReferenceSnapshotStatus() {
+  const stats = await stat(LOCAL_KNOWLEDGE_PATH).catch(() => null);
+  const payload = await readJsonIfPresent(LOCAL_KNOWLEDGE_PATH);
+  const updatedAt = payload?.generatedAt || (stats ? stats.mtime.toISOString() : "");
+  const ageHours = updatedAt ? Math.max(0, Math.round((Date.now() - new Date(updatedAt).getTime()) / 36_000) / 100) : null;
+
+  return {
+    available: Boolean(payload),
+    source: "Local ShelfCycle reference export / knowledge bundle",
+    updatedAt,
+    ageHours,
+    counts: countReferenceItems(payload ?? {}),
+    warning: payload
+      ? "Newer ShelfCycle records may not be reflected until reference data is refreshed."
+      : "No local ShelfCycle reference snapshot found."
+  };
+}
+
+function workflowHasSucceededStep(run = {}, stepId = "") {
+  return (run.steps ?? []).some((step) => step.id === stepId && step.status === WORKFLOW_STEP_STATUS.SUCCEEDED);
+}
+
+async function getLastShelfCycleWriteStatus() {
+  const runs = await listWorkflowRuns(LOCAL_WORKFLOW_RUNS_DIR, { limit: 50, type: "shelfcycle_action" });
+  const lastSubmitted = runs.find((run) => run.status === WORKFLOW_STATUS.SUCCEEDED && workflowHasSucceededStep(run, "shelfcycle_submit"));
+  const lastFailed = runs.find((run) => run.status === WORKFLOW_STATUS.FAILED);
+  const latest = runs[0] ?? null;
+
+  return {
+    lastSuccessfulAt: lastSubmitted?.finishedAt || lastSubmitted?.updatedAt || "",
+    lastSuccessfulAction: lastSubmitted?.title || "",
+    lastSuccessfulUrl: lastSubmitted?.artifacts?.shelfcycleUrl || "",
+    lastFailedAt: lastFailed?.finishedAt || lastFailed?.updatedAt || "",
+    lastFailedAction: lastFailed?.title || "",
+    latestStatus: latest?.status || "none",
+    verification: lastSubmitted
+      ? "Verify the saved ShelfCycle record in the browser after automation completes."
+      : "No successful ShelfCycle browser automation run is recorded yet."
+  };
+}
+
+async function getHostedReviewSyncStatus() {
+  const actions = [];
+
+  try {
+    const entries = await readdir(LOCAL_REVIEW_ACTIONS_DIR, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) {
+        continue;
+      }
+
+      const action = await readJsonIfPresent(path.join(LOCAL_REVIEW_ACTIONS_DIR, entry.name));
+
+      if (!action?.hostedSync) {
+        continue;
+      }
+
+      actions.push({
+        id: action.id || entry.name.replace(/\.json$/i, ""),
+        subject: action.subject || "",
+        createdAt: action.createdAt || "",
+        reviewUrl: action.reviewUrl || "",
+        hostedSync: action.hostedSync
+      });
+    }
+  } catch {
+    // Missing local review storage is a status signal, not a server failure.
+  }
+
+  actions.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+  const recent = actions.slice(0, 50);
+  const successful = recent.filter((item) => item.hostedSync?.ok);
+  const failed = recent.filter((item) => item.hostedSync && !item.hostedSync.ok);
+  const latestFailure = failed[0] ?? null;
+
+  return {
+    recentPacketsChecked: recent.length,
+    successful: successful.length,
+    failed: failed.length,
+    latestFailureAt: latestFailure?.createdAt || "",
+    latestFailureMessage: latestFailure?.hostedSync?.message || "",
+    status: failed.length ? "warning" : (successful.length ? "ok" : "unknown"),
+    detail: failed.length
+      ? `${failed.length} recent packet sync failure(s). Latest: ${latestFailure?.hostedSync?.message || "unknown failure"}.`
+      : successful.length
+        ? `${successful.length} recent packet(s) synced to hosted review storage.`
+        : "No hosted review sync results found yet."
+  };
+}
+
+async function getOperationsStatus() {
+  const [dailyBrief, referenceSnapshot, lastShelfCycleWrite, hostedReviewSync] = await Promise.all([
+    getDailyBriefStatus(),
+    getReferenceSnapshotStatus(),
+    getLastShelfCycleWriteStatus(),
+    getHostedReviewSyncStatus()
+  ]);
+  const browserRunnerStats = await stat(AUTOMATION_RUNNER_PATH).catch(() => null);
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    localRunner: {
+      connected: true,
+      label: "Connected",
+      detail: "This page is being served by the local ClearEdge backend."
+    },
+    shelfCycleApi: {
+      available: false,
+      label: "Not available",
+      detail: "ShelfCycle writes use approval-first local browser automation, not a direct API."
+    },
+    browserAutomation: {
+      available: Boolean(browserRunnerStats),
+      label: browserRunnerStats ? "Available" : "Missing",
+      detail: browserRunnerStats
+        ? "Local runner can open ShelfCycle and attempt approved actions."
+        : "ShelfCycle automation runner was not found on this machine."
+    },
+    dailyBrief,
+    referenceSnapshot,
+    lastShelfCycleWrite,
+    hostedReviewSync
   };
 }
 
@@ -950,6 +1095,7 @@ async function loadLocalOpenAiConfig() {
   return {
     apiKey: config.apiKey || config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || sharedAiConfig.apiKey || "",
     model: config.businessCardModel || config.model || process.env.OPENAI_BUSINESS_CARD_MODEL || process.env.OPENAI_MODEL || sharedAiConfig.businessCardModel || sharedAiConfig.model || "",
+    productDocumentModel: config.productDocumentModel || process.env.OPENAI_PRODUCT_DOCUMENT_MODEL || sharedAiConfig.productDocumentModel || "",
     timeoutMs: config.timeoutMs || process.env.OPENAI_BUSINESS_CARD_TIMEOUT_MS || sharedAiConfig.timeoutMs || ""
   };
 }
@@ -966,6 +1112,108 @@ function safeFilePart(value = "", fallback = "review-packet") {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120) || fallback;
+}
+
+function base64FromPayload(payload = {}) {
+  const raw = String(payload.base64 || payload.dataUrl || "");
+  const match = raw.match(/^data:[^;]+;base64,(.+)$/);
+  return match ? match[1] : raw;
+}
+
+function productFieldLabel(field = "") {
+  return {
+    productName: "Product Name",
+    productFamily: "Product Family",
+    casNumber: "CAS",
+    quantityPerPackage: "Quantity per package",
+    nmfcCode: "NMFC",
+    unNumber: "UN Number",
+    packingGroup: "Packing Group",
+    properShippingName: "Proper Shipping Name",
+    freightClass: "Freight Class"
+  }[field] || String(field || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+}
+
+function productAiLines(aiDerivedFields = []) {
+  return aiDerivedFields
+    .map((item) => {
+      const field = String(item.field || "").trim();
+      const value = String(item.value || "").trim();
+
+      if (!field || field === "extractedText" || field === "documentType" || !value) {
+        return "";
+      }
+
+      return `${productFieldLabel(field)}: ${value}`;
+    })
+    .filter(Boolean);
+}
+
+function uniqueStrings(values = []) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function productIntakeReviewUrls(requestUrl, action = {}, host = "") {
+  const base = `${requestUrl.protocol}//${host || requestUrl.host || "localhost:4318"}`;
+  const reviewUrl = `${base}/review-action.html?id=${encodeURIComponent(action.id)}&token=${encodeURIComponent(action.viewToken)}`;
+
+  return {
+    reviewUrl,
+    submitUrl: `${base}/review-submit.html?reviewUrl=${encodeURIComponent(reviewUrl)}`
+  };
+}
+
+function productIntakeSubject(result = {}) {
+  const fields = result.fields ?? {};
+  const label = fields.code || fields.productName || fields.productFamily || "Product document";
+
+  return `${result.documentType || "SDS/TDS"} intake - ${label}`;
+}
+
+function withUpdatedProductWritePlan(result = {}) {
+  if (result.workflow !== "new_product") {
+    return result;
+  }
+
+  const fields = result.fields ?? {};
+  const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
+  const documentType = result.documentType ?? fields.documentType ?? "SDS";
+
+  return {
+    ...result,
+    writePlan: {
+      ...(result.writePlan ?? {}),
+      destination: matchedProduct?.code || matchedProduct?.name
+        ? `Products > ${matchedProduct.code || matchedProduct.name}`
+        : "Products > New Product Code",
+      fields: {
+        ...(result.writePlan?.fields ?? {}),
+        productName: fields.productName ?? "",
+        code: fields.code ?? "",
+        productFamily: fields.productFamily ?? "",
+        supplier: fields.supplier ?? "",
+        casNumber: fields.casNumber ?? "",
+        packaging: fields.packaging ?? "",
+        quantityPerPackage: fields.quantityPerPackage ?? "",
+        unNumber: fields.unNumber ?? "",
+        packingGroup: fields.packingGroup ?? "",
+        properShippingName: fields.properShippingName ?? "",
+        freightClass: fields.freightClass ?? "",
+        nmfcCode: fields.nmfcCode ?? ""
+      },
+      aiDerivedFields: result.aiDerivedFields ?? [],
+      attachments: [
+        documentType === "SDS"
+          ? "Attach SDS in product code safety attributes"
+          : "Upload TDS in the product Documents drawer",
+        matchedProduct ? "Existing product matched. Prefer update/document upload over duplicate create." : ""
+      ].filter(Boolean)
+    }
+  };
+}
+
+function missingProductCoreFields(fields = {}) {
+  return ["code", "productFamily", "packaging", "quantityPerPackage"].filter((key) => !String(fields[key] || "").trim());
 }
 
 function isPdfDocument(item = {}) {
@@ -1117,6 +1365,11 @@ function createServer() {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/ops/status") {
+        json(response, 200, await getOperationsStatus());
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/workflows/runs") {
         json(response, 200, await getWorkflowRunsStatus({
           limit: optionalNumber(url.searchParams.get("limit")) ?? 20,
@@ -1222,6 +1475,75 @@ function createServer() {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/product-document/extract") {
+        const payload = await readBody(request);
+        const fileName = payload.fileName || payload.name || "document.pdf";
+        const mimeType = payload.mimeType || "application/pdf";
+        const base64 = base64FromPayload(payload);
+        const warnings = [];
+
+        if (!base64) {
+          json(response, 400, {
+            ok: false,
+            fileName,
+            text: "",
+            fields: {},
+            aiDerivedFields: [],
+            warnings: ["No PDF data was received."]
+          });
+          return;
+        }
+
+        let text = "";
+        let method = "local_pdf_text";
+
+        try {
+          text = extractPdfText(Buffer.from(base64, "base64"));
+        } catch (error) {
+          warnings.push(`Local PDF text extraction failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+
+        let aiResult = {
+          ok: false,
+          text: "",
+          fields: {},
+          aiDerivedFields: [],
+          warnings: []
+        };
+
+        if (!text || payload.forceAi === true) {
+          aiResult = await extractProductDocumentPdfWithAi({
+            fileName,
+            mimeType,
+            base64,
+            config: await loadLocalOpenAiConfig()
+          });
+
+          if (aiResult.text) {
+            text = aiResult.text;
+            method = "openai_pdf";
+          }
+        }
+
+        const combinedWarnings = [
+          ...warnings,
+          ...(aiResult.warnings ?? []),
+          text ? "" : "No readable PDF text was found. If this is a scanned PDF, confirm OpenAI vision/document extraction is configured."
+        ].filter(Boolean);
+
+        json(response, text ? 200 : 422, {
+          ok: Boolean(text),
+          fileName,
+          mimeType,
+          text,
+          method,
+          fields: aiResult.fields ?? {},
+          aiDerivedFields: aiResult.aiDerivedFields ?? [],
+          warnings: combinedWarnings
+        });
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/analyze") {
         const payload = await readBody(request);
         const workflowRunId = `intake-${new Date().toISOString().replace(/[:.]/g, "-")}`;
@@ -1244,10 +1566,83 @@ function createServer() {
         }).catch(() => {});
 
         try {
-          const result = analyzeInput({
+          const referenceData = await mergeProjectIntelligence(payload.referenceData ?? {});
+          const inputBody = String(payload.text || "");
+          let result = analyzeInput({
             ...payload,
-            referenceData: await mergeProjectIntelligence(payload.referenceData ?? {})
+            text: inputBody,
+            referenceData
           });
+
+          if (result.workflow === "new_product") {
+            const missingCoreFields = missingProductCoreFields(result.fields ?? {});
+            const shouldRefineWithAi = payload.useAi === true || missingCoreFields.length > 0;
+            const refinedResult = shouldRefineWithAi
+              ? await refineProductDocumentWithAi({
+                text: inputBody,
+                result,
+                config: await loadLocalOpenAiConfig()
+              })
+              : result;
+            const aiLines = productAiLines(refinedResult.aiDerivedFields ?? []);
+
+            if (aiLines.length) {
+              const rerun = analyzeInput({
+                ...payload,
+                text: [inputBody, "AI-derived ShelfCycle fields:", aiLines.join("\n")].filter(Boolean).join("\n\n"),
+                referenceData
+              });
+
+              result = {
+                ...rerun,
+                fields: {
+                  ...(rerun.fields ?? {}),
+                  ...(refinedResult.fields ?? {})
+                },
+                aiDerivedFields: refinedResult.aiDerivedFields ?? [],
+                warnings: uniqueStrings([
+                  ...(rerun.warnings ?? []),
+                  ...(refinedResult.warnings ?? [])
+                ])
+              };
+            } else {
+              result = refinedResult;
+            }
+
+            result = withUpdatedProductWritePlan(result);
+          }
+
+          let reviewAction = null;
+
+          if (result.workflow === "new_product") {
+            reviewAction = createReviewActionRecord({
+              workflow: "new_product",
+              subject: productIntakeSubject(result),
+              summary: "Review this SDS/TDS product intake before any ShelfCycle product create or update.",
+              analysis: result,
+              state: {
+                status: ACTION_STATE.WAITING_APPROVAL,
+                needsReply: false,
+                waiting: false
+              },
+              workspaceArtifacts: {
+                attachments: (payload.files ?? []).map((file) => ({
+                  filename: file.fileName || file.name || "",
+                  mimeType: file.mimeType || file.type || "",
+                  size: file.size || 0
+                })),
+                driveFileIds: [],
+                driveFiles: [],
+                driveScopeAvailable: true,
+                driveError: ""
+              }
+            });
+            const urls = productIntakeReviewUrls(url, reviewAction, request.headers.host || "");
+            reviewAction.reviewUrl = urls.reviewUrl;
+            reviewAction.submitUrl = urls.submitUrl;
+            await saveLocalReviewAction(LOCAL_REVIEW_ACTIONS_DIR, reviewAction);
+          }
+
           await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "analyze_intake", {
             status: WORKFLOW_STEP_STATUS.SUCCEEDED,
             detail: `${result.workflow} (${Math.round((result.confidence ?? 0) * 100)}%)`
@@ -1262,7 +1657,9 @@ function createServer() {
           }).catch(() => {});
           await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "draft_actions", {
             status: WORKFLOW_STEP_STATUS.SUCCEEDED,
-            detail: "Drafts prepared for review. No ShelfCycle write performed.",
+            detail: reviewAction
+              ? `Review packet created with ${reviewAction.proposedActions?.length ?? 0} proposed ShelfCycle action(s). No ShelfCycle write performed.`
+              : "Drafts prepared for review. No ShelfCycle write performed.",
             actionState: ACTION_STATE.WAITING_APPROVAL
           }).catch(() => {});
           await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "approval_wait", {
@@ -1274,6 +1671,11 @@ function createServer() {
           const workflowRun = await loadWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId);
           json(response, 200, {
             ...result,
+            reviewAction: reviewAction ? sanitizeReviewAction(reviewAction) : null,
+            reviewUrl: reviewAction?.reviewUrl || "",
+            submitUrl: reviewAction?.submitUrl || "",
+            proposedActions: reviewAction?.proposedActions ?? [],
+            executableActions: reviewAction?.executableActions ?? [],
             workflowRunId,
             workflowRun
           });

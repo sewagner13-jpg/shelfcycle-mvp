@@ -175,6 +175,46 @@ test("suggested contacts become executable when a customer target is resolved", 
   assert.deepEqual(contact.fieldValues.documentTypes, ["AR Statement", "Price Quote", "Sales Confirmation", "Invoice", "Credit Note"]);
 });
 
+test("suggested contact create is blocked when the contact already exists in ShelfCycle", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    matches: {
+      customer: [
+        { score: 0.99, candidate: { id: "cust-123", name: "Sun Coatings" } }
+      ],
+      contacts: [
+        {
+          score: 0.98,
+          candidate: {
+            id: "contact-123",
+            name: "Kunal Butala",
+            email: "kunal@example.com",
+            companyName: "Sun Coatings",
+            companyType: "Customer"
+          }
+        }
+      ]
+    },
+    suggestedCreates: [
+      {
+        type: "contact",
+        name: "Kunal Butala",
+        email: "kunal@example.com",
+        companyName: "Sun Coatings"
+      }
+    ]
+  }));
+  const contact = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.CONTACT_CREATE);
+  const contactUpdate = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.CONTACT_UPDATE);
+
+  assert.equal(contact.executable, false);
+  assert.equal(contact.displayLabel, "Existing ShelfCycle contact match - review instead of creating");
+  assert.ok(contact.warnings.includes("Existing ShelfCycle contact match found; review before creating a duplicate contact."));
+  assert.equal(contact.duplicateCandidates[0].email, "kunal@example.com");
+  assert.equal(contactUpdate.executable, true);
+  assert.equal(contactUpdate.selectedTarget.id, "contact-123");
+  assert.equal(contactUpdate.fieldValues.email, "kunal@example.com");
+});
+
 test("contact create keeps all customer document types even when input has a partial list", () => {
   const actions = collectProposedActions(baseReviewAction({
     suggestedCreates: [
@@ -320,6 +360,36 @@ test("new customer workflow blocks customer_create when an existing customer mat
   assert.equal(customer.targetCandidates[0].label, "Sun Coatings");
 });
 
+test("new customer workflow blocks create when a matched ShelfCycle customer contact already exists", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_customer",
+    fields: {
+      name: "Everest Systems"
+    },
+    matches: {
+      customer: [],
+      supplier: [],
+      contacts: [
+        {
+          score: 0.91,
+          candidate: {
+            name: "Derek Herald",
+            email: "dherald@everestsco.com",
+            companyName: "Everest Systems",
+            companyType: "Customer"
+          }
+        }
+      ]
+    }
+  }));
+  const customer = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.CUSTOMER_CREATE);
+
+  assert.equal(customer.executable, false);
+  assert.equal(customer.displayLabel, "Existing ShelfCycle customer match - review instead of creating");
+  assert.ok(customer.warnings.includes("Possible existing ShelfCycle customer match found; review before creating a duplicate customer."));
+  assert.equal(customer.duplicateCandidates[0].label, "Everest Systems");
+});
+
 test("daily brief customer thread proposes customer create when no strong ShelfCycle customer exists", () => {
   const actions = collectProposedActions(baseReviewAction({
     workflow: "email_thread",
@@ -412,6 +482,65 @@ test("new supplier workflow produces executable supplier_create when required na
   assert.ok(supplier.fieldValues.missingRecommendedFields.includes("email"));
 });
 
+test("business-card supplier create carries visible supplier contact details into supplier fields", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "business_card",
+    fields: {
+      companyName: "Green Chemical",
+      personName: "Doyun Kim",
+      title: "Manager | Chemical Sales team",
+      email: "dykim1@korgc.com",
+      phone: "+82-2-3158-8827",
+      mobilePhone: "+82-10-8824-7318",
+      website: "http://www.korgc.com",
+      streetAddress: "15F, Changgang Building, 86, Mapo-daero",
+      city: "Seoul",
+      country: "Korea",
+      zip: "04168",
+      relationshipType: "supplier"
+    },
+    suggestedCreates: [
+      {
+        type: "supplier",
+        name: "Green Chemical",
+        email: "dykim1@korgc.com",
+        phone: "+82-2-3158-8827",
+        website: "http://www.korgc.com",
+        street1: "15F, Changgang Building, 86, Mapo-daero",
+        city: "Seoul",
+        country: "Korea",
+        zip: "04168"
+      },
+      {
+        type: "contact",
+        name: "Doyun Kim",
+        title: "Manager | Chemical Sales team",
+        email: "dykim1@korgc.com",
+        phone: "+82-2-3158-8827",
+        mobilePhone: "+82-10-8824-7318",
+        companyName: "Green Chemical",
+        companyType: "Supplier"
+      }
+    ],
+    matches: {
+      customer: [],
+      supplier: [],
+      contacts: []
+    }
+  }));
+  const supplier = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_CREATE);
+
+  assert.equal(supplier.executable, true);
+  assert.equal(supplier.fieldValues.name, "Green Chemical");
+  assert.equal(supplier.fieldValues.email, "dykim1@korgc.com");
+  assert.equal(supplier.fieldValues.phone, "+82-2-3158-8827");
+  assert.equal(supplier.fieldValues.website, "http://www.korgc.com");
+  assert.equal(supplier.fieldValues.street1, "15F, Changgang Building, 86, Mapo-daero");
+  assert.equal(supplier.fieldValues.city, "Seoul");
+  assert.equal(supplier.fieldValues.country, "Korea");
+  assert.equal(supplier.fieldValues.zip, "04168");
+});
+
 test("new supplier workflow blocks supplier_create when an existing supplier match may duplicate", () => {
   const actions = collectProposedActions(baseReviewAction({
     workflow: "new_supplier",
@@ -436,6 +565,126 @@ test("new supplier workflow blocks supplier_create when an existing supplier mat
   assert.equal(supplier.executable, false);
   assert.ok(supplier.warnings.includes("Possible existing ShelfCycle supplier match found; review before creating a duplicate supplier."));
   assert.equal(supplier.targetCandidates[0].label, "ACCESS Rudolf Technologies");
+});
+
+test("existing supplier match offers update action with visible supplier fields", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "business_card",
+    relationship: {
+      relationship: "supplier",
+      subtype: "supplier"
+    },
+    fields: {
+      companyName: "Green Chemical",
+      email: "dykim1@korgc.com",
+      phone: "+82-2-3158-8827",
+      website: "http://www.korgc.com",
+      relationshipType: "supplier"
+    },
+    suggestedCreates: [
+      {
+        type: "contact",
+        name: "Doyun Kim",
+        title: "Manager | Chemical Sales team",
+        email: "dykim1@korgc.com",
+        companyName: "Green Chemical",
+        companyType: "Supplier"
+      }
+    ],
+    matches: {
+      customer: [],
+      supplier: [
+        {
+          score: 0.96,
+          candidate: {
+            id: "supplier-123",
+            name: "Green Chemical"
+          }
+        }
+      ],
+      contacts: []
+    }
+  }));
+  const supplierCreate = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_CREATE);
+  const supplierUpdate = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE);
+
+  assert.equal(Boolean(supplierCreate), false);
+  assert.equal(supplierUpdate.executable, true);
+  assert.equal(supplierUpdate.selectedTarget.id, "supplier-123");
+  assert.equal(supplierUpdate.fieldValues.email, "dykim1@korgc.com");
+  assert.equal(supplierUpdate.fieldValues.phone, "+82-2-3158-8827");
+  assert.equal(supplierUpdate.fieldValues.website, "http://www.korgc.com");
+});
+
+test("business-card supplier candidate offers searchable supplier update without a local ShelfCycle id", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "business_card",
+    relationship: {
+      relationship: "supplier",
+      subtype: "supplier"
+    },
+    fields: {
+      companyName: "WANHUA CHEMICAL (AMERICA) CO., LTD.",
+      email: "info@wanhua.example",
+      phone: "555-555-1212",
+      website: "https://www.whchem.com",
+      relationshipType: "supplier"
+    },
+    suggestedCreates: [
+      {
+        type: "supplier",
+        name: "WANHUA CHEMICAL (AMERICA) CO., LTD.",
+        email: "info@wanhua.example",
+        phone: "555-555-1212",
+        website: "https://www.whchem.com"
+      }
+    ],
+    matches: {
+      customer: [],
+      supplier: [],
+      contacts: []
+    }
+  }));
+  const supplierCreate = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_CREATE);
+  const supplierUpdate = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE);
+
+  assert.equal(supplierCreate.executable, true);
+  assert.equal(supplierUpdate.executable, true);
+  assert.equal(supplierUpdate.selectedTarget.id, "");
+  assert.equal(supplierUpdate.selectedTarget.label, "WANHUA CHEMICAL (AMERICA) CO., LTD.");
+  assert.equal(supplierUpdate.fieldValues.email, "info@wanhua.example");
+  assert.equal(supplierUpdate.fieldValues.phone, "555-555-1212");
+  assert.equal(supplierUpdate.fieldValues.website, "https://www.whchem.com");
+});
+
+test("new supplier workflow blocks create when a matched ShelfCycle supplier contact already exists", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_supplier",
+    fields: {
+      name: "MAK Chemicals"
+    },
+    matches: {
+      customer: [],
+      supplier: [],
+      contacts: [
+        {
+          score: 0.9,
+          candidate: {
+            name: "Kunal Butala",
+            email: "kunal@makchem.com",
+            companyName: "MAK Chemicals",
+            companyType: "Supplier"
+          }
+        }
+      ]
+    }
+  }));
+  const supplier = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_CREATE);
+
+  assert.equal(supplier.executable, false);
+  assert.equal(supplier.displayLabel, "Existing ShelfCycle supplier match - review instead of creating");
+  assert.ok(supplier.warnings.includes("Possible existing ShelfCycle supplier match found; review before creating a duplicate supplier."));
+  assert.equal(supplier.duplicateCandidates[0].label, "MAK Chemicals");
 });
 
 test("daily brief supplier thread proposes supplier create when no strong ShelfCycle supplier exists", () => {
@@ -614,4 +863,62 @@ test("suggested supplier contacts block when ShelfCycle-required title is missin
   assert.equal(contact.executable, false);
   assert.ok(contact.warnings.includes("Supplier contact creation requires the ShelfCycle required Title field."));
   assert.ok(contact.requiredFields.includes("fields.title"));
+});
+
+test("product create/update proposes update for an existing ShelfCycle product match", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    briefAi: {
+      shelfCycleCandidate: {
+        shouldConsider: true,
+        recordType: "Product",
+        fields: [
+          "code: RUCOLAC B-591",
+          "product_family: RUCOLAC B-591",
+          "packaging: Drum",
+          "quantity_per_package: 529 lb"
+        ]
+      }
+    },
+    matches: {
+      customer: [],
+      products: [
+        {
+          score: 0.95,
+          candidate: {
+            id: "product-123",
+            code: "RUCOLAC B-591",
+            name: "RUCOLAC B-591"
+          }
+        }
+      ]
+    }
+  }));
+  const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+
+  assert.equal(product.executable, true);
+  assert.equal(product.displayLabel, "Update existing product in ShelfCycle");
+  assert.equal(product.selectedTarget.id, "product-123");
+  assert.equal(product.fieldValues.mode, "update");
+  assert.equal(product.duplicateCandidates[0].label, "RUCOLAC B-591");
+});
+
+test("product intake can create a new ShelfCycle product when required fields are present", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    fields: {
+      code: "NEW-D",
+      productFamily: "New Product",
+      packaging: "Drum",
+      quantityPerPackage: "500 lb"
+    },
+    matches: {
+      customer: [],
+      product: []
+    }
+  }));
+  const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+
+  assert.equal(product.executable, true);
+  assert.equal(product.displayLabel, "Create product code in ShelfCycle");
+  assert.equal(product.fieldValues.mode, "create");
 });

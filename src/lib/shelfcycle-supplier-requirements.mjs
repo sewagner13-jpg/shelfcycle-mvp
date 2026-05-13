@@ -268,17 +268,7 @@ export function collectSupplierCreateFields(reviewAction = {}, context = {}) {
   const fieldMap = fieldMapFromAiCandidate(reviewAction);
   const participant = preferredExternalParticipant(reviewAction);
   const identity = inferredCompanyName(reviewAction, { relationship: "supplier" });
-  const allowPersonFieldsAsCompanyFields = reviewAction.workflow !== "business_card";
-  const contextFields = allowPersonFieldsAsCompanyFields
-    ? (context.fields ?? {})
-    : {
-        ...(context.fields ?? {}),
-        email: "",
-        phone: "",
-        phoneNumber: "",
-        officePhone: "",
-        mobilePhone: ""
-      };
+  const contextFields = context.fields ?? {};
   const participantDomain = identity.domain || participant.domain || "";
   const domain = participantDomain ? `https://${participantDomain}` : "";
   const participantCompanyName = isLikelyCompanyName(participant.name)
@@ -316,17 +306,21 @@ export function collectSupplierCreateFields(reviewAction = {}, context = {}) {
     email: firstNonEmpty(
       contextFields.email,
       suggestedSupplier.email,
-      allowPersonFieldsAsCompanyFields ? reviewAction.fields?.email : "",
+      reviewAction.fields?.email,
       fieldMap.email,
-      allowPersonFieldsAsCompanyFields ? participant.email : ""
+      participant.email
     ),
     website: firstNonEmpty(contextFields.website, suggestedSupplier.website, reviewAction.fields?.website, fieldMap.website, websiteFromText, domain),
     phone: firstNonEmpty(
       contextFields.phone,
       contextFields.phoneNumber,
+      contextFields.officePhone,
+      contextFields.mobilePhone,
       suggestedSupplier.phone,
-      allowPersonFieldsAsCompanyFields ? reviewAction.fields?.phone : "",
-      allowPersonFieldsAsCompanyFields ? reviewAction.fields?.phoneNumber : ""
+      suggestedSupplier.phoneNumber,
+      reviewAction.fields?.phone,
+      reviewAction.fields?.phoneNumber,
+      reviewAction.fields?.mobilePhone
     ),
     ...contextFields
   });

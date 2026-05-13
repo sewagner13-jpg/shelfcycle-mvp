@@ -110,13 +110,74 @@ function encodeActionParam(action = {}) {
   return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
+function candidateName(candidate = {}) {
+  return candidate.code || candidate.sku || candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
+}
+
+function candidateKind(candidate = {}, fallback = "record") {
+  const raw = String(candidate.companyType || candidate.type || candidate.kind || candidate.raw?.company_type || fallback).toLowerCase();
+
+  if (raw.includes("supplier")) {
+    return "supplier contact";
+  }
+
+  if (raw.includes("customer") || raw.includes("prospect")) {
+    return "customer contact";
+  }
+
+  return fallback;
+}
+
+function matchLines(action = {}) {
+  const matches = action.matches ?? {};
+  const lines = [];
+  const collect = (keys = [], label = "record") => {
+    for (const key of keys) {
+      for (const entry of asArray(matches[key])) {
+        const candidate = entry?.candidate ?? entry;
+        const name = candidateName(candidate);
+
+        if (!name) {
+          continue;
+        }
+
+        const score = Math.round(Number(entry?.score ?? entry?.confidence ?? candidate?.score ?? candidate?.confidence ?? 0) * 100);
+        lines.push(`Already in ShelfCycle - ${label}: ${name}${score ? ` (${score}% match)` : ""}`);
+      }
+    }
+  };
+
+  collect(["customer", "customers"], "customer");
+  collect(["supplier", "suppliers"], "supplier");
+
+  for (const key of ["contact", "contacts"]) {
+    for (const entry of asArray(matches[key])) {
+      const candidate = entry?.candidate ?? entry;
+      const name = candidateName(candidate);
+
+      if (name) {
+        lines.push(`Already in ShelfCycle - ${candidateKind(candidate, "contact")}: ${name}`);
+      }
+    }
+  }
+
+  collect(["product", "products"], "product");
+  return [...new Set(lines)].slice(0, 8);
+}
+
 function formatActionSummary(action = {}) {
+  const existing = matchLines(action);
+
   return [
     `Focus Section: ${currentSection}`,
     `Subject: ${action.subject || "-"}`,
     `Relationship: ${action.relationship?.relationship || "-"}`,
     `Silo: ${action.silo?.name || "-"}`,
     `State: ${action.state?.state || "-"}`,
+    "",
+    "Existing ShelfCycle matches:",
+    existing.length ? existing.map((line) => `- ${line}`).join("\n") : "- None confirmed",
+    "",
     `Summary: ${action.summary || "-"}`,
     `Customer Match: ${action.matches?.customer?.[0]?.candidate?.name || "None"}`
   ].join("\n");
@@ -241,6 +302,28 @@ function collectPreviewMentions(action = {}, proposedAction = null, customer = n
   }
 
   return uniqueMentions(mentions);
+}
+
+function duplicateCandidatesHtml(proposedAction = null) {
+  const duplicates = proposedAction?.duplicateCandidates ?? [];
+
+  if (!duplicates.length) {
+    return "";
+  }
+
+  return `
+    <div class="shelfcycle-duplicate-panel">
+      <p class="section-kicker">Already in ShelfCycle</p>
+      <ul class="compact-list">
+        ${duplicates.slice(0, 5).map((candidate) => {
+          const label = candidate.label || candidate.name || candidate.companyName || candidate.email || candidate.id || "Matched record";
+          const reasons = (candidate.matchReasons ?? []).join("; ");
+          return `<li><strong>${escapeHtml(label)}</strong>${reasons ? ` <span>${escapeHtml(reasons)}</span>` : ""}</li>`;
+        }).join("")}
+      </ul>
+      <p class="small muted">This create action is blocked until the existing ShelfCycle record is reviewed.</p>
+    </div>
+  `;
 }
 
 function targetPreviewHtml(targetUrl = "") {
@@ -387,7 +470,8 @@ function formatSubmitResult(payload = {}) {
     `${payload.result?.message || "ShelfCycle action submitted."}`,
     `Action: ${fieldLabel(payload.actionType || "ShelfCycle action")}`,
     `Target: ${target}`,
-    payload.result?.shelfcycleUrl ? `ShelfCycle: ${payload.result.shelfcycleUrl}` : ""
+    payload.result?.shelfcycleUrl ? `ShelfCycle: ${payload.result.shelfcycleUrl}` : "",
+    "Verification: Open ShelfCycle and confirm the saved record, note, contact, or document looks correct."
   ];
 
   const mentionResults = payload.result?.mentionResults ?? payload.mentionResults ?? [];
@@ -683,6 +767,10 @@ function actionTargetKind(proposedAction = null) {
   const target = selectedTarget ?? proposedAction?.selectedTarget ?? proposedAction?.targetCandidates?.[0] ?? null;
   const companyType = proposedAction?.fieldValues?.companyType || "";
 
+  if (target?.kind === "contact" || proposedAction?.actionType === "contact_update") {
+    return "contact";
+  }
+
   if (target?.kind === "supplier" || /supplier/i.test(companyType)) {
     return "supplier";
   }
@@ -854,6 +942,7 @@ function actionPreviewCardHtml(proposedAction = null) {
         <div class="shelfcycle-field-grid">
           ${genericFieldsHtml(fields, ["name", "email", "website", "phoneNumber", "streetAddress", "streetAddress2", "city", "stateRegion", "zip", "country", "creditLimit", "paymentTerm", "defaultSalesPerson", "defaultCsr", "prospect"])}
         </div>
+        ${duplicateCandidatesHtml(proposedAction)}
         ${customerRequirementsHtml(proposedAction, fields)}
         ${customerResearchSummaryHtml(fields)}
         <div class="shelfcycle-form-actions">
@@ -876,11 +965,32 @@ function actionPreviewCardHtml(proposedAction = null) {
         <div class="shelfcycle-field-grid">
           ${genericFieldsHtml(fields, ["name", "phone", "email", "website", "street1", "street2", "city", "country", "stateRegion", "zip", "paymentTerms", "creditLimit", "achRoutingNumber", "achAccountNumber", "costAccount", "preferredUnitOfMeasure", "defaultSupplierRep"])}
         </div>
+        ${duplicateCandidatesHtml(proposedAction)}
         ${supplierRequirementsHtml(proposedAction, fields)}
         ${supplierResearchSummaryHtml(fields)}
         <div class="shelfcycle-form-actions">
           <button type="button" class="button-link mini ghost" data-supplier-research>Research missing public supplier info with ChatGPT</button>
         </div>
+      </article>
+    `;
+  }
+
+  if (proposedAction.actionType === "supplier_update") {
+    return `
+      <article class="shelfcycle-form-card shelfcycle-record-preview">
+        <div class="shelfcycle-form-header">
+          <div>
+            <p class="section-kicker">ShelfCycle Supplier</p>
+            <h3>Update Existing Supplier Preview</h3>
+          </div>
+          <span class="status-pill ${proposedAction.executable || selectedTarget?.label ? "status-ready" : "status-review"}">${selectedTarget?.label || proposedAction.selectedTarget?.label ? "Target selected" : "Needs supplier"}</span>
+        </div>
+        <div class="shelfcycle-field-grid">
+          ${shelfField("Supplier", targetLabel)}
+          ${genericFieldsHtml(fields, ["name", "phone", "email", "website", "street1", "street2", "city", "country", "stateRegion", "zip", "paymentTerms", "creditLimit", "achRoutingNumber", "achAccountNumber", "costAccount", "preferredUnitOfMeasure", "defaultSupplierRep"])}
+        </div>
+        ${duplicateCandidatesHtml(proposedAction)}
+        ${supplierRequirementsHtml(proposedAction, fields)}
       </article>
     `;
   }
@@ -906,6 +1016,33 @@ function actionPreviewCardHtml(proposedAction = null) {
           ${shelfField("Mobile Phone", fields.mobilePhone || "")}
           ${shelfField("Document Types", Array.isArray(fields.documentTypes) ? fields.documentTypes.join(", ") : "")}
         </div>
+        ${duplicateCandidatesHtml(proposedAction)}
+      </article>
+    `;
+  }
+
+  if (proposedAction.actionType === "contact_update") {
+    const companyType = fields.companyType === "supplier" ? "Supplier" : "Customer";
+    const phoneLabel = fields.companyType === "supplier" ? "Phone" : "Office Phone";
+    return `
+      <article class="shelfcycle-form-card shelfcycle-record-preview">
+        <div class="shelfcycle-form-header">
+          <div>
+            <p class="section-kicker">ShelfCycle Contact</p>
+            <h3>Update Existing Contact Preview</h3>
+          </div>
+          <span class="status-pill ${proposedAction.executable || selectedTarget?.label ? "status-ready" : "status-review"}">${selectedTarget?.label || proposedAction.selectedTarget?.label ? "Contact selected" : "Needs contact"}</span>
+        </div>
+        <div class="shelfcycle-field-grid">
+          ${shelfField("Contact", targetLabel)}
+          ${shelfField(companyType, fields.companyTarget?.label || "")}
+          ${shelfField("Name", fields.name || "")}
+          ${shelfField("Title", fields.title || "")}
+          ${shelfField("Email", fields.email || "")}
+          ${shelfField(phoneLabel, fields.phone || fields.officePhone || "")}
+          ${shelfField("Mobile Phone", fields.mobilePhone || "")}
+        </div>
+        ${duplicateCandidatesHtml(proposedAction)}
       </article>
     `;
   }
@@ -923,6 +1060,7 @@ function actionPreviewCardHtml(proposedAction = null) {
         <div class="shelfcycle-field-grid">
           ${genericFieldsHtml(fields, ["code", "productFamily", "packagingType", "packaging", "quantityPerPackage", "supplierType", "supplier", "casNumber", "sdsPath", "nmfcCode", "freightClass", "unNumber", "packingGroup", "properShippingName"])}
         </div>
+        ${duplicateCandidatesHtml(proposedAction)}
       </article>
     `;
   }
@@ -1041,7 +1179,7 @@ function renderNoteTargetCard(action = {}, submission = null) {
   const noteTypes = new Set(["customer_note", "supplier_note", "order_or_logistics_note"]);
   const candidates = currentProposedAction?.targetCandidates ?? [];
   const targetKind = actionTargetKind(currentProposedAction);
-  const targetLabel = targetKind === "supplier" ? "Supplier" : "Customer";
+  const targetLabel = targetKind === "contact" ? "Contact" : targetKind === "supplier" ? "Supplier" : "Customer";
   const requiresCustomerLabel = currentProposedAction?.requiredFields?.includes("selectedTarget.label");
   const picker = !currentProposedAction?.selectedTarget && candidates.length
     ? `
@@ -1153,9 +1291,32 @@ function hasCreateNoteAction(action = {}) {
   return Boolean(currentProposedAction);
 }
 
+function submitButtonLabel(enabled) {
+  if (!currentProposedAction) {
+    return "Load Review Packet First";
+  }
+
+  if (submittedActionIds.has(currentProposedAction.id)) {
+    return "Verify in ShelfCycle";
+  }
+
+  if (!currentProposedAction.executable && !(currentProposedAction.requiredFields ?? []).length) {
+    return "Preview Only - Manual Entry Required";
+  }
+
+  if (!enabled) {
+    return "Complete Required Fields";
+  }
+
+  return "Approve & Run ShelfCycle Entry";
+}
+
 function setSubmitEnabled(enabled) {
   submitNoteButton.disabled = !enabled;
-  submitNoteButton.title = enabled ? "" : "This packet does not have a validated executable ShelfCycle action.";
+  submitNoteButton.textContent = submitButtonLabel(enabled);
+  submitNoteButton.title = enabled
+    ? "This will start local ShelfCycle browser automation after you confirm approval."
+    : "This packet does not yet have a validated executable ShelfCycle action.";
 }
 
 function requiredFieldsSatisfied(action = currentProposedAction, target = selectedTarget ?? currentProposedAction?.selectedTarget) {
@@ -1460,7 +1621,9 @@ async function loadReviewAction() {
   setOutput(submitWarningsEl, (currentAction.warnings ?? []).join("\n"));
   setOutput(submitResultEl, "");
   renderShelfCycleFormPreview(currentAction, null);
-  submitStatusEl.textContent = "Review packet loaded.";
+  submitStatusEl.textContent = currentProposedAction?.executable
+    ? "Review packet loaded. This action can run locally after approval."
+    : "Review packet loaded. This action is preview-only until required ShelfCycle target or action support exists.";
   await loadNoteTarget(currentAction);
 }
 
@@ -1513,7 +1676,7 @@ async function submitNote() {
     return;
   }
 
-  submitStatusEl.textContent = `Submitting ${currentProposedAction.displayLabel || currentProposedAction.actionType} to ShelfCycle...`;
+  submitStatusEl.textContent = `Submitted to local runner: ${currentProposedAction.displayLabel || currentProposedAction.actionType}. Watch ShelfCycle, then verify the result.`;
   submitResultEl.textContent = "";
   setSubmitEnabled(false);
 
@@ -1554,7 +1717,9 @@ async function submitNote() {
       return;
     }
 
-    submitStatusEl.textContent = payload.ok ? "ShelfCycle action submitted." : "ShelfCycle submission failed.";
+    submitStatusEl.textContent = payload.ok
+      ? "ShelfCycle action submitted. Verify the saved record in ShelfCycle."
+      : "ShelfCycle submission failed.";
   } finally {
     setSubmitEnabled(requiredFieldsSatisfied() && !submittedActionIds.has(currentProposedAction?.id));
   }

@@ -40,6 +40,7 @@ const selectAllHiddenNoiseEl = document.querySelector("#select-all-hidden-noise"
 const trashHiddenNoiseButton = document.querySelector("#trash-hidden-noise");
 
 const workflowChip = document.querySelector("#workflow-chip");
+const sourceFileStatusEl = document.querySelector("#source-file-status");
 const signalsEl = document.querySelector("#signals");
 const writePlanEl = document.querySelector("#write-plan");
 const draftEl = document.querySelector("#draft");
@@ -49,6 +50,7 @@ const suggestedCreatesEl = document.querySelector("#suggested-creates");
 const followUpDraftEl = document.querySelector("#follow-up-draft");
 const roleWorklistsEl = document.querySelector("#role-worklists");
 const automationIdeasEl = document.querySelector("#automation-ideas");
+const productActionsEl = document.querySelector("#product-actions");
 const intelligenceStatusEl = document.querySelector("#intelligence-status");
 const intelligenceSummaryEl = document.querySelector("#intelligence-summary");
 const intelligenceBriefEl = document.querySelector("#intelligence-brief");
@@ -73,7 +75,8 @@ const EMPTY_REFERENCE_DATA = {
 const LOCAL_MVP_API_BASE = "http://localhost:4318";
 
 const state = {
-  referenceData: { ...EMPTY_REFERENCE_DATA }
+  referenceData: { ...EMPTY_REFERENCE_DATA },
+  sourceFiles: []
 };
 let briefProgressTimer = null;
 let manualBriefStartedAt = "";
@@ -211,15 +214,73 @@ function formatDraft(result) {
     return result.draftNote.summary;
   }
 
-  return JSON.stringify(
-    {
-      fields: result.fields,
-      attachmentPlan: result.attachmentPlan,
-      suggestedCreates: result.suggestedCreates
-    },
-    null,
-    2
-  );
+  const fields = result.fields ?? {};
+  const fieldLines = Object.entries(fields)
+    .filter(([, value]) => String(value || "").trim())
+    .map(([key, value]) => `- ${key}: ${value}`);
+  const aiLines = (result.aiDerivedFields ?? [])
+    .map((item) => `- ${item.field}: ${item.value}${item.reason ? ` (${item.reason})` : ""}`);
+  const attachmentLines = (result.writePlan?.attachments ?? result.attachmentPlan ?? [])
+    .map((item) => `- ${item}`);
+  const createLines = (result.suggestedCreates ?? [])
+    .map((item) => `- ${item.type || "record"}: ${item.name || item.companyName || item.productName || "Review manually"}`);
+
+  return [
+    fieldLines.length ? `Extracted ShelfCycle fields:\n${fieldLines.join("\n")}` : "Extracted ShelfCycle fields:\n- None found yet",
+    aiLines.length ? `AI-derived fields:\n${aiLines.join("\n")}` : "",
+    attachmentLines.length ? `Document handling:\n${attachmentLines.join("\n")}` : "",
+    createLines.length ? `Suggested creates:\n${createLines.join("\n")}` : ""
+  ].filter(Boolean).join("\n\n");
+}
+
+function formatActionWarnings(action = {}) {
+  return (action.warnings ?? []).filter(Boolean).join(" ");
+}
+
+function renderProductActions(result = {}) {
+  if (!productActionsEl) {
+    return;
+  }
+
+  const actions = (result.proposedActions ?? result.reviewAction?.proposedActions ?? [])
+    .filter((action) => ["product_create_or_update", "product_document_followup"].includes(action.actionType));
+
+  if (!actions.length) {
+    productActionsEl.innerHTML = `
+      <article class="brief-action-card">
+        <p class="muted">No ShelfCycle product action was prepared. Analyze an SDS/TDS product workflow to create an approval packet.</p>
+      </article>
+    `;
+    return;
+  }
+
+  const reviewLinks = [
+    result.reviewUrl ? `<a href="${escapeHtml(result.reviewUrl)}" target="_blank" rel="noreferrer">Review Packet</a>` : "",
+    result.submitUrl ? `<a href="${escapeHtml(result.submitUrl)}" target="_blank" rel="noreferrer">Approve ShelfCycle Action</a>` : ""
+  ].filter(Boolean).join(" ");
+
+  productActionsEl.innerHTML = actions
+    .map((action) => {
+      const status = action.executable ? "Ready for approval" : "Needs review";
+      const target = action.selectedTarget?.label || action.fieldValues?.productName || action.fieldValues?.code || "No product target selected";
+      const aiLines = (action.fieldValues?.aiDerivedFields ?? result.aiDerivedFields ?? [])
+        .map((item) => `<li>${escapeHtml(item.field)}: ${escapeHtml(item.value)}${item.reason ? ` <span class="muted">(${escapeHtml(item.reason)})</span>` : ""}</li>`)
+        .join("");
+      const warnings = formatActionWarnings(action);
+
+      return `
+        <article class="brief-action-card">
+          <p class="brief-kicker">${escapeHtml(status)}</p>
+          <h3>${escapeHtml(action.displayLabel || action.actionType || "ShelfCycle action")}</h3>
+          <p><strong>Target:</strong> ${escapeHtml(target)}</p>
+          <p><strong>Mode:</strong> ${escapeHtml(action.fieldValues?.mode || "review")}</p>
+          ${warnings ? `<p><strong>Warnings:</strong> ${escapeHtml(warnings)}</p>` : ""}
+          ${aiLines ? `<p><strong>AI-derived fields:</strong></p><ul>${aiLines}</ul>` : ""}
+          <div class="brief-action-links">${reviewLinks || "Run analysis to generate approval links."}</div>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 function formatRoleWorklists(roleWorklists = {}) {
@@ -380,7 +441,8 @@ async function analyze() {
   const payload = {
     text: inputText.value,
     workflow: workflowSelect.value,
-    referenceData: state.referenceData
+    referenceData: state.referenceData,
+    files: state.sourceFiles
   };
 
   const response = await fetch("/api/analyze", {
@@ -391,7 +453,18 @@ async function analyze() {
     body: JSON.stringify(payload)
   });
 
-  const result = await response.json();
+  const responseText = await response.text();
+  let result = {};
+
+  try {
+    result = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    throw new Error(`Analyze returned a non-JSON response: ${responseText.slice(0, 180)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(result.error || result.message || "Analyze request failed.");
+  }
 
   workflowChip.textContent = `${result.workflow} (${Math.round((result.confidence ?? 0) * 100)}%)`;
   workflowChip.className = "chip active";
@@ -404,6 +477,7 @@ async function analyze() {
   setOutput(suggestedCreatesEl, JSON.stringify(result.suggestedCreates ?? [], null, 2));
   setOutput(followUpDraftEl, formatFollowUpDraft(result.followUpDraft));
   setOutput(roleWorklistsEl, formatRoleWorklists(result.roleWorklists));
+  renderProductActions(result);
   setOutput(automationIdeasEl, [
     result.workflowRunId ? `Workflow run: ${result.workflowRunId}` : "",
     result.workflowRun?.status ? `Workflow status: ${result.workflowRun.status}` : "",
@@ -715,10 +789,13 @@ function renderHomeTopActions(actions = []) {
           <div class="record-meta">
             <span>${escapeHtml(action.time || "No time")}</span>
             <span>${escapeHtml(action.type || "Unclassified")}</span>
+            <span>${escapeHtml(action.state || "New")}</span>
           </div>
           <p><strong>Action:</strong> ${escapeHtml(action.action || "Review this thread.")}</p>
           <p><strong>Why:</strong> ${escapeHtml(action.why || "No reason captured.")}</p>
+          ${action.confidence ? `<p><strong>Confidence:</strong> ${escapeHtml(action.confidence)}</p>` : ""}
           ${action.risk ? `<p><strong>Risk:</strong> ${escapeHtml(action.risk)}</p>` : ""}
+          ${action.shelfCycleStatus ? `<p><strong>ShelfCycle status:</strong> ${escapeHtml(action.shelfCycleStatus)}</p>` : ""}
           ${action.shelfCycle ? `<p><strong>ShelfCycle:</strong> ${escapeHtml(action.shelfCycle)}</p>` : ""}
           <div class="brief-action-links">${links || '<a href="/briefs.html">Open Briefs</a>'}</div>
         </article>
@@ -1592,6 +1669,78 @@ async function hydrateProjectIntelligence() {
   }
 }
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("Could not read file.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function isPdfFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.type || "").toLowerCase();
+  return type === "application/pdf" || name.endsWith(".pdf");
+}
+
+function aiDerivedSourceLines(aiDerivedFields = []) {
+  const labels = {
+    productName: "Product Name",
+    productFamily: "Product Family",
+    casNumber: "CAS",
+    quantityPerPackage: "Quantity per package",
+    nmfcCode: "NMFC",
+    unNumber: "UN Number",
+    packingGroup: "Packing Group",
+    properShippingName: "Proper Shipping Name",
+    freightClass: "Freight Class"
+  };
+
+  return (aiDerivedFields ?? [])
+    .map((item) => {
+      const field = String(item.field || "").trim();
+      const value = String(item.value || "").trim();
+
+      if (!field || field === "extractedText" || field === "documentType" || !value) {
+        return "";
+      }
+
+      const label = labels[field] || field.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+      return `${label}: ${value}`;
+    })
+    .filter(Boolean);
+}
+
+async function extractPdfSourceFile(file) {
+  const response = await fetch("/api/product-document/extract", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      mimeType: file.type || "application/pdf",
+      size: file.size,
+      dataUrl: await fileToDataUrl(file)
+    })
+  });
+  const text = await response.text();
+  let result = {};
+
+  try {
+    result = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`PDF extraction returned a non-JSON response: ${text.slice(0, 160)}`);
+  }
+
+  if (!response.ok || !result.ok) {
+    throw new Error((result.warnings ?? []).join(" ") || result.error || "PDF extraction failed.");
+  }
+
+  return result;
+}
+
 async function loadSourceFiles(files = []) {
   if (!inputText) {
     return;
@@ -1599,6 +1748,12 @@ async function loadSourceFiles(files = []) {
 
   const chunks = [];
   const skipped = [];
+  const loaded = [];
+  const warnings = [];
+
+  if (sourceFileStatusEl) {
+    sourceFileStatusEl.textContent = "Reading selected SDS/TDS files...";
+  }
 
   for (const file of files) {
     const fileName = file.name.toLowerCase();
@@ -1606,20 +1761,57 @@ async function loadSourceFiles(files = []) {
       file.type.startsWith("text/") ||
       [".txt", ".md", ".csv", ".tsv", ".sds", ".tds"].some((extension) => fileName.endsWith(extension));
 
+    if (isPdfFile(file)) {
+      try {
+        const extracted = await extractPdfSourceFile(file);
+        const aiLines = aiDerivedSourceLines(extracted.aiDerivedFields);
+        const fieldLines = aiLines.length ? `\n\nAI-derived ShelfCycle fields:\n${aiLines.join("\n")}` : "";
+        chunks.push(`--- ${file.name} (${extracted.method || "pdf extraction"}) ---\n${extracted.text}${fieldLines}`);
+        warnings.push(...(extracted.warnings ?? []));
+        loaded.push(`${file.name} (${extracted.method || "PDF"})`);
+        state.sourceFiles.push({
+          fileName: file.name,
+          mimeType: file.type || "application/pdf",
+          size: file.size,
+          extractionMethod: extracted.method || "pdf"
+        });
+      } catch (error) {
+        skipped.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      continue;
+    }
+
     if (!canReadAsText) {
       skipped.push(file.name);
       continue;
     }
 
     chunks.push(`--- ${file.name} ---\n${await file.text()}`);
+    loaded.push(file.name);
+    state.sourceFiles.push({
+      fileName: file.name,
+      mimeType: file.type || "text/plain",
+      size: file.size,
+      extractionMethod: "browser_text"
+    });
   }
 
   if (chunks.length) {
     inputText.value = [inputText.value.trim(), chunks.join("\n\n")].filter(Boolean).join("\n\n");
   }
 
+  if (sourceFileStatusEl) {
+    sourceFileStatusEl.textContent = loaded.length
+      ? `Loaded ${loaded.join(", ")}.`
+      : "No source files were loaded.";
+  }
+
   if (skipped.length) {
-    setOutput(warningsEl, `Skipped non-text files: ${skipped.join(", ")}. For PDFs, paste extracted SDS/TDS text into the intake box.`);
+    warnings.push(`Skipped files: ${skipped.join("; ")}`);
+  }
+
+  if (warnings.length) {
+    setOutput(warningsEl, warnings.join("\n"));
   }
 }
 
@@ -1645,7 +1837,11 @@ sourceFilesInput?.addEventListener("change", async (event) => {
   event.target.value = "";
 });
 
-analyzeButton?.addEventListener("click", analyze);
+analyzeButton?.addEventListener("click", () => {
+  analyze().catch((error) => {
+    setOutput(warningsEl, error instanceof Error ? error.message : "Product analysis failed.");
+  });
+});
 loadSampleButton?.addEventListener("click", loadSampleData);
 exportKnowledgeButton?.addEventListener("click", exportKnowledgeBundle);
 clearReferenceButton?.addEventListener("click", clearReferenceData);

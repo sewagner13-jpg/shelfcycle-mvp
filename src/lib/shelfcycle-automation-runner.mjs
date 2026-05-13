@@ -1,12 +1,14 @@
 import {
   openShelfCycleSessionForLogin,
   submitShelfCycleContact,
+  submitShelfCycleContactUpdate,
   submitShelfCycleCustomer,
   submitShelfCycleNote,
   submitShelfCyclePriceBookEntry,
   submitShelfCycleProductCode,
   submitShelfCycleProductDocument,
   submitShelfCycleSupplier,
+  submitShelfCycleSupplierUpdate,
   loadSubmissionPayload
 } from "./shelfcycle-automation.mjs";
 
@@ -55,7 +57,9 @@ async function main() {
       order_or_logistics_note: submitShelfCycleNote,
       customer_create: submitShelfCycleCustomer,
       supplier_create: submitShelfCycleSupplier,
+      supplier_update: submitShelfCycleSupplierUpdate,
       contact_create: submitShelfCycleContact,
+      contact_update: submitShelfCycleContactUpdate,
       pricing_record: submitShelfCyclePriceBookEntry,
       product_create_or_update: submitShelfCycleProductCode,
       product_document_followup: submitShelfCycleProductDocument

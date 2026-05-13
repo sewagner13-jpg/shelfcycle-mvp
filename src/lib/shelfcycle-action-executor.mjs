@@ -169,6 +169,62 @@ export function buildSupplierSubmission(_reviewAction = {}, proposedAction = {})
   };
 }
 
+export function buildSupplierUpdateSubmission(_reviewAction = {}, proposedAction = {}) {
+  assertExecutableAction(proposedAction);
+
+  const target = proposedAction.selectedTarget ?? {};
+
+  if (!target.id && !target.label) {
+    const error = new Error("A ShelfCycle supplier target is required.");
+    error.code = SHELFCYCLE_ERROR_CODES.MISSING_TARGET;
+    throw error;
+  }
+
+  return {
+    recordType: "supplier",
+    actionType: proposedAction.actionType,
+    actionId: proposedAction.id,
+    reviewActionId: proposedAction.reviewActionId,
+    supplierId: target.id || "",
+    supplierName: target.label || "",
+    url: target.id
+      ? `https://app.shelfcycle.com/org-clearedge/suppliers/${target.id}`
+      : "https://app.shelfcycle.com/org-clearedge/suppliers",
+    fields: proposedAction.fieldValues ?? {}
+  };
+}
+
+export function buildContactUpdateSubmission(_reviewAction = {}, proposedAction = {}) {
+  assertExecutableAction(proposedAction);
+
+  const target = proposedAction.selectedTarget ?? {};
+  const fields = proposedAction.fieldValues ?? {};
+  const companyTarget = fields.companyTarget ?? {};
+
+  if (!target.id && !target.label) {
+    const error = new Error("A ShelfCycle contact target is required.");
+    error.code = SHELFCYCLE_ERROR_CODES.MISSING_TARGET;
+    throw error;
+  }
+
+  return {
+    recordType: "contact",
+    actionType: proposedAction.actionType,
+    actionId: proposedAction.id,
+    reviewActionId: proposedAction.reviewActionId,
+    contactId: target.id || "",
+    contactName: target.label || "",
+    customerId: companyTarget.kind === "customer" ? (companyTarget.id || "") : "",
+    customerName: companyTarget.kind === "customer" ? (companyTarget.label || "") : "",
+    supplierId: companyTarget.kind === "supplier" ? (companyTarget.id || "") : "",
+    supplierName: companyTarget.kind === "supplier" ? (companyTarget.label || "") : "",
+    url: target.id
+      ? `https://app.shelfcycle.com/org-clearedge/contacts/${target.id}`
+      : "https://app.shelfcycle.com/org-clearedge/contacts",
+    fields
+  };
+}
+
 export function buildPricingSubmission(_reviewAction = {}, proposedAction = {}) {
   assertExecutableAction(proposedAction);
 
@@ -184,14 +240,20 @@ export function buildPricingSubmission(_reviewAction = {}, proposedAction = {}) 
 
 export function buildProductSubmission(_reviewAction = {}, proposedAction = {}) {
   assertExecutableAction(proposedAction);
+  const product = proposedAction.selectedTarget ?? {};
+  const fields = proposedAction.fieldValues ?? {};
 
   return {
     recordType: "product_code",
     actionType: proposedAction.actionType,
     actionId: proposedAction.id,
     reviewActionId: proposedAction.reviewActionId,
-    url: "https://app.shelfcycle.com/org-clearedge/products",
-    fields: proposedAction.fieldValues
+    productId: product.id || "",
+    productName: product.label || fields.code || fields.productName || "",
+    url: product.id
+      ? `https://app.shelfcycle.com/org-clearedge/products/${product.id}`
+      : "https://app.shelfcycle.com/org-clearedge/products",
+    fields
   };
 }
 
@@ -232,6 +294,14 @@ export function buildShelfCycleSubmission(reviewAction = {}, proposedAction = {}
     return buildSupplierSubmission(reviewAction, proposedAction);
   }
 
+  if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE) {
+    return buildSupplierUpdateSubmission(reviewAction, proposedAction);
+  }
+
+  if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.CONTACT_UPDATE) {
+    return buildContactUpdateSubmission(reviewAction, proposedAction);
+  }
+
   if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.PRICING_RECORD) {
     return buildPricingSubmission(reviewAction, proposedAction);
   }
@@ -270,7 +340,9 @@ export async function executeApprovedShelfCycleAction({
     const messages = {
       [SHELFCYCLE_ACTION_TYPES.CUSTOMER_CREATE]: "Customer submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.SUPPLIER_CREATE]: "Supplier submitted to ShelfCycle.",
+      [SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE]: "Supplier updated in ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.CONTACT_CREATE]: "Contact submitted to ShelfCycle.",
+      [SHELFCYCLE_ACTION_TYPES.CONTACT_UPDATE]: "Contact updated in ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.PRICING_RECORD]: "Pricing record submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE]: "Product submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.PRODUCT_DOCUMENT_FOLLOWUP]: "Product document submitted to ShelfCycle."

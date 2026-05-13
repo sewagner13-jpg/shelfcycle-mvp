@@ -4,12 +4,14 @@ import assert from "node:assert/strict";
 import { collectProposedActions, SHELFCYCLE_ACTION_TYPES } from "../src/lib/shelfcycle-action-router.mjs";
 import {
   buildContactSubmission,
+  buildContactUpdateSubmission,
   buildCustomerSubmission,
   buildCustomerNoteSubmission,
   buildPricingSubmission,
   buildProductDocumentSubmission,
   buildProductSubmission,
-  buildSupplierSubmission
+  buildSupplierSubmission,
+  buildSupplierUpdateSubmission
 } from "../src/lib/shelfcycle-action-executor.mjs";
 
 function executableReviewAction() {
@@ -236,6 +238,62 @@ test("buildSupplierSubmission creates supplier payload", () => {
   assert.equal(submission.fields.name, "Precision Additives LLC");
 });
 
+test("buildSupplierUpdateSubmission creates supplier update payload", () => {
+  const submission = buildSupplierUpdateSubmission(executableReviewAction(), {
+    id: "action-supplier-update",
+    reviewActionId: "review-123",
+    actionType: SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE,
+    executable: true,
+    selectedTarget: {
+      kind: "supplier",
+      id: "supplier-123",
+      label: "Green Chemical"
+    },
+    fieldValues: {
+      phone: "+82-2-3158-8827",
+      website: "http://www.korgc.com"
+    }
+  });
+
+  assert.equal(submission.actionType, SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE);
+  assert.equal(submission.supplierId, "supplier-123");
+  assert.equal(submission.supplierName, "Green Chemical");
+  assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/suppliers/supplier-123");
+  assert.equal(submission.fields.phone, "+82-2-3158-8827");
+});
+
+test("buildContactUpdateSubmission creates contact update payload", () => {
+  const submission = buildContactUpdateSubmission(executableReviewAction(), {
+    id: "action-contact-update",
+    reviewActionId: "review-123",
+    actionType: SHELFCYCLE_ACTION_TYPES.CONTACT_UPDATE,
+    executable: true,
+    selectedTarget: {
+      kind: "contact",
+      id: "contact-123",
+      label: "Doyun Kim"
+    },
+    fieldValues: {
+      name: "Doyun Kim",
+      title: "Manager | Chemical Sales team",
+      email: "dykim1@korgc.com",
+      companyType: "supplier",
+      companyTarget: {
+        kind: "supplier",
+        id: "supplier-123",
+        label: "Green Chemical"
+      }
+    }
+  });
+
+  assert.equal(submission.actionType, SHELFCYCLE_ACTION_TYPES.CONTACT_UPDATE);
+  assert.equal(submission.contactId, "contact-123");
+  assert.equal(submission.contactName, "Doyun Kim");
+  assert.equal(submission.supplierId, "supplier-123");
+  assert.equal(submission.supplierName, "Green Chemical");
+  assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/contacts/contact-123");
+});
+
 test("buildSupplierSubmission rejects supplier payload without name", () => {
   assert.throws(
     () => buildSupplierSubmission(executableReviewAction(), {
@@ -300,6 +358,30 @@ test("buildProductSubmission creates product-code payload", () => {
 
   assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/products");
   assert.equal(submission.fields.code, "NEW-D");
+});
+
+test("buildProductSubmission creates existing-product update payload", () => {
+  const submission = buildProductSubmission(executableReviewAction(), {
+    id: "action-product-update",
+    reviewActionId: "review-123",
+    actionType: SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE,
+    executable: true,
+    selectedTarget: {
+      kind: "product",
+      id: "prod-123",
+      label: "RUCOLAC B-591"
+    },
+    fieldValues: {
+      mode: "update",
+      supplier: "Rudolf",
+      casNumber: "123-45-6"
+    }
+  });
+
+  assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/products/prod-123");
+  assert.equal(submission.productId, "prod-123");
+  assert.equal(submission.productName, "RUCOLAC B-591");
+  assert.equal(submission.fields.mode, "update");
 });
 
 test("buildProductDocumentSubmission creates existing product document payload", () => {

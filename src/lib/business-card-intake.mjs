@@ -142,7 +142,7 @@ function extractEmail(text = "") {
 }
 
 function extractWebsite(text = "") {
-  const match = String(text).match(/\b(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s]*)?\b/i);
+  const match = String(text).match(/\b(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/[^\s]*)?\b/i);
 
   if (!match) {
     return "";
@@ -158,9 +158,23 @@ function extractWebsite(text = "") {
 }
 
 function extractPhones(text = "") {
-  return [...String(text).matchAll(/(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s./-]?)\d{3}[\s./-]?\d{4}(?:\s*(?:x|ext\.?)\s*\d+)?/gi)]
-    .map((match) => compactWhitespace(match[0]))
-    .filter(Boolean);
+  const phonePatterns = [
+    /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s./-]?)\d{3}[\s./-]?\d{4}(?:\s*(?:x|ext\.?)\s*\d+)?/gi,
+    /\+\d{1,3}[\s.-]?(?:\(?\d{1,4}\)?[\s./-]?){2,6}\d{2,4}(?:\s*(?:x|ext\.?)\s*\d+)?/gi
+  ];
+  const phones = [];
+
+  for (const pattern of phonePatterns) {
+    for (const match of String(text).matchAll(pattern)) {
+      const value = compactWhitespace(match[0]);
+
+      if (value && !phones.includes(value)) {
+        phones.push(value);
+      }
+    }
+  }
+
+  return phones;
 }
 
 function parseAddressFromLines(lines = []) {
@@ -555,10 +569,10 @@ function prependExistingCompanyTarget(matches = {}, target = null) {
 function companyFieldsForCreate(fields = {}) {
   return {
     name: fields.companyName,
-    email: "",
+    email: fields.email,
     website: fields.website,
-    phone: "",
-    phoneNumber: "",
+    phone: firstNonEmpty(fields.phone, fields.mobilePhone),
+    phoneNumber: firstNonEmpty(fields.phone, fields.mobilePhone),
     streetAddress: fields.streetAddress,
     street1: fields.streetAddress,
     streetAddress2: fields.streetAddress2,

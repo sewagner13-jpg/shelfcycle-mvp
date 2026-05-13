@@ -34,19 +34,44 @@ export function parseProductDocument(text = "") {
   const hazardClass = findField(text, [/hazard class\s*[:\-]\s*(.+)/i]);
   const properShippingName = findField(text, [/proper shipping name\s*[:\-]\s*(.+)/i]);
   const signalWord = findField(text, [/signal word\s*[:\-]\s*(.+)/i]);
+  const code = findField(text, [
+    /(?:product\s+)?code\s*[:\-]\s*(.+)/i,
+    /sku\s*[:\-]\s*(.+)/i
+  ]);
+  const productFamily = findField(text, [
+    /product\s+family\s*[:\-]\s*(.+)/i,
+    /family\s*[:\-]\s*(.+)/i
+  ]);
+  const packaging = findField(text, [
+    /packaging\s*[:\-]\s*(.+)/i,
+    /package\s+type\s*[:\-]\s*(.+)/i
+  ]);
+  const quantityPerPackage = findField(text, [
+    /quantity\s+per\s+package\s*[:\-]\s*(.+)/i,
+    /net\s+weight\s*[:\-]\s*(.+)/i,
+    /package\s+(?:qty|quantity)\s*[:\-]\s*(.+)/i
+  ]);
+  const freightClass = findField(text, [/freight class\s*[:\-]\s*(.+)/i]);
+  const nmfcCode = findField(text, [/nmfc\s*(?:code)?\s*[:\-]\s*(.+)/i]);
 
   return {
     workflow: "new_product",
     documentType,
     fields: {
       productName,
+      code,
+      productFamily,
       supplier: manufacturer,
       casNumber: casNumbers[0] ?? "",
+      packaging,
+      quantityPerPackage,
       unNumber: unNumbers[0] ?? "",
       packingGroup,
       hazardClass,
       properShippingName,
-      signalWord
+      signalWord,
+      freightClass,
+      nmfcCode
     },
     attachmentPlan: {
       sds: documentType === "SDS",

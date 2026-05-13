@@ -26,7 +26,7 @@
         </nav>
         <div class="sidebar-note">
           <span class="status-dot"></span>
-          Text files can be loaded directly. For PDFs, paste extracted SDS/TDS text until PDF parsing is added.
+          Load SDS/TDS PDFs or text files. Scanned PDFs use OpenAI extraction when configured.
         </div>
       </aside>
 
@@ -45,6 +45,8 @@
             <a class="button-link ghost" href="/settings.html">Reference Data</a>
           </div>
         </header>
+
+        <section class="panel ops-status-panel" data-ops-status></section>
 
         <section class="record-page">
           <div class="record-main panel">
@@ -83,8 +85,9 @@
                   <option value="call_report">Call report</option>
                 </select>
 
-                <label for="source-files">Load text source</label>
-                <input id="source-files" type="file" multiple accept=".txt,.md,.csv,.tsv,.sds,.tds,text/*" />
+                <label for="source-files">Load SDS/TDS source</label>
+                <input id="source-files" type="file" multiple accept=".pdf,application/pdf,.txt,.md,.csv,.tsv,.sds,.tds,text/*" />
+                <p id="source-file-status" class="form-help">PDFs are extracted locally first; AI is used only when the document text or missing fields need help.</p>
 
                 <label for="input-text">SDS/TDS or product text</label>
                 <textarea
@@ -178,6 +181,11 @@
             </div>
 
             <div class="result-section output-wide">
+              <h3>ShelfCycle Approval Actions</h3>
+              <div id="product-actions" class="home-action-stack"></div>
+            </div>
+
+            <div class="result-section output-wide">
               <h3>Automation Ideas</h3>
               <pre id="automation-ideas" class="text-block"></pre>
             </div>
@@ -186,6 +194,7 @@
       </main>
     </div>
 
+    <script type="module" src="/ops-status.js"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -766,6 +766,50 @@ function executableShelfCycleLinks(item = {}) {
   return links;
 }
 
+function taskStateLabel(item = {}) {
+  if (isSolicitationThread(item)) {
+    return "Hidden noise";
+  }
+
+  if (item.state?.state === "waiting_on_other_side") {
+    return "Waiting on other side";
+  }
+
+  if (executableShelfCycleLinks(item).length) {
+    return "Ready for approval";
+  }
+
+  if (item.reviewUrl) {
+    return "Review packet ready";
+  }
+
+  if (item.state?.state === "needs_attention") {
+    return "New";
+  }
+
+  return "Review if needed";
+}
+
+function confidenceLabel(item = {}) {
+  const rawConfidence =
+    item.briefAi?.confidence ??
+    item.relationship?.confidence ??
+    item.silo?.confidence ??
+    item.confidence ??
+    null;
+  const numeric = typeof rawConfidence === "number"
+    ? `${Math.round(Math.max(0, Math.min(1, rawConfidence)) * 100)}%`
+    : "";
+  const status = shelfCycleRelationshipStatus(item);
+  const reason = /existing|matched|known/i.test(status)
+    ? "ShelfCycle reference match found."
+    : /not found|unknown|unmatched/i.test(status)
+      ? "No exact ShelfCycle match found; verify before entry."
+      : status || "Rule-based communication triage.";
+
+  return [numeric || "Medium", reason].filter(Boolean).join(" - ");
+}
+
 function actionLinks(item = {}, nextStep = "") {
   const links = [
     { label: "Gmail", href: gmailThreadUrl(item) },
@@ -818,6 +862,8 @@ function formatActionCard(item = {}, { timeZone, locale } = {}) {
       `<strong>Time:</strong> ${escapeHtml(formatTime(item.lastTimestamp, locale, timeZone) || "-")}`,
       `<strong>Type:</strong> ${escapeHtml(relationshipLabel(item) || statusLabel(item) || "-")}`,
       `<strong>Company:</strong> ${escapeHtml(company)}`,
+      `<strong>Task state:</strong> ${escapeHtml(taskStateLabel(item))}`,
+      `<strong>Confidence:</strong> ${escapeHtml(confidenceLabel(item))}`,
       `<strong>ShelfCycle status:</strong> ${escapeHtml(shelfCycleRelationshipStatus(item))}`,
       `<strong>Action:</strong> ${escapeHtml(nextStep || "Review if needed.")}`,
       `<strong>Why:</strong> ${escapeHtml(truncateInsight(keyPoint(item), 180))}`,
@@ -873,7 +919,7 @@ function matchCandidatesFromKeys(matches = {}, keys = []) {
 }
 
 function candidateDisplayName(candidate = {}) {
-  return candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
+  return candidate.code || candidate.sku || candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
 }
 
 function candidateCompanyType(candidate = {}) {
@@ -896,6 +942,9 @@ function shelfCycleRelationshipStatus(item = {}) {
     .map(candidateDisplayName)
     .filter(Boolean);
   const contacts = matchCandidatesFromKeys(matches, ["contact", "contacts"]);
+  const products = matchCandidatesFromKeys(matches, ["product", "products"])
+    .map(candidateDisplayName)
+    .filter(Boolean);
   const customerContacts = contacts
     .filter((candidate) => candidateCompanyType(candidate) === "customer")
     .map((candidate) => candidate.companyName || candidateDisplayName(candidate))
@@ -926,8 +975,12 @@ function shelfCycleRelationshipStatus(item = {}) {
     existing.push(`Existing supplier contact: ${supplierContacts[0]}`);
   }
 
+  if (products[0]) {
+    existing.push(`Existing product: ${products[0]}`);
+  }
+
   if (existing.length) {
-    return existing.slice(0, 2).join("; ");
+    return existing.slice(0, 3).join("; ");
   }
 
   if (actionTypes.includes("customer_create") || suggestedTypes.includes("customer")) {
@@ -936,6 +989,10 @@ function shelfCycleRelationshipStatus(item = {}) {
 
   if (actionTypes.includes("supplier_create") || suggestedTypes.includes("supplier")) {
     return "No existing supplier found; supplier create candidate available.";
+  }
+
+  if (actionTypes.includes("product_create_or_update")) {
+    return "No existing product confirmed; product create/update candidate available.";
   }
 
   return "No confirmed ShelfCycle customer/supplier match.";

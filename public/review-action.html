@@ -40,12 +40,14 @@
             </p>
           </div>
           <div class="topbar-actions">
-            <a id="add-packet-to-shelfcycle" class="button-link primary" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Add to ShelfCycle</a>
+            <a id="add-packet-to-shelfcycle" class="button-link primary" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer" hidden>Approve &amp; Run ShelfCycle Entry</a>
             <a id="open-shelfcycle" class="button-link primary" href="https://app.shelfcycle.com/" target="_blank" rel="noreferrer">Open ShelfCycle</a>
             <a id="open-local-submit" class="button-link ghost" href="http://localhost:4318/review-submit.html" target="_blank" rel="noreferrer">Open Local Submit</a>
             <a id="open-chatgpt" class="button-link ghost" href="https://chatgpt.com/" target="_blank" rel="noreferrer">Open in ChatGPT</a>
           </div>
         </header>
+
+        <section class="panel ops-status-panel" data-ops-status></section>
 
         <section class="panel review-summary decision-panel">
           <div class="decision-hero">
@@ -199,6 +201,7 @@
       </main>
     </div>
 
+    <script type="module" src="/ops-status.js"></script>
     <script type="module" src="/review-action.js"></script>
   </body>
 </html>

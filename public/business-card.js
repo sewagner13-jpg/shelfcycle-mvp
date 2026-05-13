@@ -22,6 +22,8 @@ const confidenceEl = document.querySelector("#card-confidence");
 const resultGridEl = document.querySelector("#card-result-grid");
 const LOCAL_API_BASE = "http://localhost:4318";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const MAX_SCAN_IMAGE_DIMENSION = 1400;
+const SCAN_IMAGE_JPEG_QUALITY = 0.82;
 
 let cameraStream = null;
 let capturedImageDataUrl = "";
@@ -60,6 +62,51 @@ function readImageAsDataUrl(file) {
   });
 }
 
+function optimizeImageDataUrl(dataUrl = "") {
+  if (!String(dataUrl || "").startsWith("data:image/")) {
+    return Promise.resolve(dataUrl || "");
+  }
+
+  return new Promise((resolve) => {
+    const image = new Image();
+
+    image.addEventListener("load", () => {
+      try {
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+
+        if (!width || !height) {
+          resolve(dataUrl);
+          return;
+        }
+
+        const scale = Math.min(1, MAX_SCAN_IMAGE_DIMENSION / Math.max(width, height));
+        const outputWidth = Math.max(1, Math.round(width * scale));
+        const outputHeight = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        if (!context) {
+          resolve(dataUrl);
+          return;
+        }
+
+        canvas.width = outputWidth;
+        canvas.height = outputHeight;
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, outputWidth, outputHeight);
+        context.drawImage(image, 0, 0, outputWidth, outputHeight);
+        resolve(canvas.toDataURL("image/jpeg", SCAN_IMAGE_JPEG_QUALITY));
+      } catch {
+        resolve(dataUrl);
+      }
+    });
+
+    image.addEventListener("error", () => resolve(dataUrl));
+    image.src = dataUrl;
+  });
+}
+
 async function readJsonResponse(response, fallbackLabel = "API") {
   const bodyText = await response.text();
 
@@ -84,6 +131,28 @@ async function readJsonResponse(response, fallbackLabel = "API") {
     jsonError.bodyPreview = bodyPreview;
     throw jsonError;
   }
+}
+
+function isTimeoutLikeError(error) {
+  const text = [
+    error?.message,
+    error?.bodyPreview,
+    error?.payload?.message,
+    error?.payload?.error,
+    ...(error?.payload?.warnings ?? [])
+  ].filter(Boolean).join(" ");
+
+  return Number(error?.status) === 504 || /\b(inactivity timeout|timeout|timed out|aborted)\b/i.test(text);
+}
+
+function businessCardErrorMessage(error) {
+  if (isTimeoutLikeError(error)) {
+    return currentScanStoredLocally
+      ? "Business-card image extraction timed out on the local backend. Retake a clearer photo, crop closer to the card, or paste the card text and scan again."
+      : "Hosted image extraction timed out. Open the local ClearEdge app at http://localhost:4318 and try again, or paste the card text before scanning. The hosted site has a shorter timeout for image-only scans.";
+  }
+
+  return error instanceof Error ? error.message : "Business-card extraction failed.";
 }
 
 function isLocalPage() {
@@ -181,6 +250,27 @@ function reviewCredentials(reviewUrl = "") {
       token: ""
     };
   }
+}
+
+async function postBusinessCardScan(apiBase = "", body = {}) {
+  const response = await fetch(apiUrl("/api/business-card/scan", apiBase), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  const payload = await readJsonResponse(response, apiBase ? "Local business-card extraction API" : "Business-card extraction API");
+
+  if (!response.ok) {
+    const details = (payload.warnings ?? []).join(" ");
+    const error = new Error([payload.message || payload.error || "Business-card extraction failed.", details].filter(Boolean).join(" "));
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
 }
 
 function setCameraButtons({ running = false, captured = false } = {}) {
@@ -350,12 +440,12 @@ function collectBusinessCardEdits() {
 function actionFieldsFromBusinessCard(action = {}, fields = collectBusinessCardEdits()) {
   const current = action.fieldValues ?? {};
 
-  if (action.actionType === "supplier_create") {
+  if (action.actionType === "supplier_create" || action.actionType === "supplier_update") {
     return {
       ...current,
       name: fields.companyName || current.name || "",
-      phone: current.phone || "",
-      email: current.email || "",
+      phone: fields.phone || fields.mobilePhone || current.phone || "",
+      email: fields.email || current.email || "",
       website: fields.website || "",
       street1: fields.streetAddress || current.street1 || "",
       street2: fields.streetAddress2 || current.street2 || "",
@@ -382,7 +472,7 @@ function actionFieldsFromBusinessCard(action = {}, fields = collectBusinessCardE
     };
   }
 
-  if (action.actionType === "contact_create") {
+  if (action.actionType === "contact_create" || action.actionType === "contact_update") {
     const companyKind = contactActionCompanyKind(action);
     const phoneForShelfCycle = companyKind === "supplier"
       ? (fields.phone || fields.mobilePhone || current.phone || current.officePhone || "")
@@ -576,12 +666,29 @@ function proposedActionRows(actions = []) {
             data-action-id="${escapeHtml(action.id || "")}"
             data-action-type="${escapeHtml(action.actionType || "")}"
             ${disabled ? "disabled" : ""}
-          >Approve & Add to ShelfCycle</button>
+          >${escapeHtml(actionApprovalButtonLabel(action))}</button>
         </div>
       `;
       }).join("")}
     </div>
   `;
+}
+
+function actionApprovalButtonLabel(action = {}) {
+  switch (action.actionType) {
+    case "supplier_update":
+      return "Approve & Update Supplier";
+    case "supplier_create":
+      return "Approve & Create Supplier";
+    case "customer_create":
+      return "Approve & Create Customer";
+    case "contact_update":
+      return "Approve & Update Contact";
+    case "contact_create":
+      return "Approve & Create Contact";
+    default:
+      return "Approve & Add to ShelfCycle";
+  }
 }
 
 function contactActionCompanyKind(action = {}) {
@@ -638,6 +745,86 @@ function actionApprovalUnavailableReason(action = {}) {
   }
 
   return "";
+}
+
+function isSupplierAlreadyExistsError(error) {
+  const text = [
+    error?.message,
+    error?.payload?.message,
+    error?.payload?.error?.message,
+    error?.payload?.error,
+    ...(error?.payload?.warnings ?? [])
+  ].filter(Boolean).join(" ");
+
+  return /\bsupplier already exists\b|\balready exists\b/i.test(text);
+}
+
+function hasSupplierUpdateValues(fields = {}) {
+  return [
+    "phone",
+    "email",
+    "website",
+    "street1",
+    "streetAddress",
+    "street2",
+    "streetAddress2",
+    "city",
+    "country",
+    "stateRegion",
+    "zip"
+  ].some((key) => String(fields[key] || "").trim());
+}
+
+function promoteSupplierUpdateFromCreateAction(createAction = {}, fields = collectBusinessCardEdits()) {
+  if (!currentScanPayload?.action?.proposedActions || createAction.actionType !== "supplier_create") {
+    return false;
+  }
+
+  const existing = currentScanPayload.action.proposedActions.some((action) => action.actionType === "supplier_update");
+
+  if (existing) {
+    return false;
+  }
+
+  const updateFields = actionFieldsFromBusinessCard({
+    ...createAction,
+    actionType: "supplier_update"
+  }, fields);
+  const label = String(updateFields.name || fields.companyName || createAction.fieldValues?.name || "").trim();
+
+  if (!label) {
+    return false;
+  }
+
+  const selectedTarget = {
+    kind: "supplier",
+    id: "",
+    label,
+    confidence: 0.7,
+    matchReasons: ["ShelfCycle reported this supplier already exists; update by searching the supplier name."]
+  };
+  const actionId = String(createAction.id || "").endsWith("-supplier_create")
+    ? String(createAction.id).replace(/-supplier_create$/, "-supplier_update")
+    : `${createAction.id || "business-card"}-supplier_update`;
+  const warnings = hasSupplierUpdateValues(updateFields)
+    ? []
+    : ["Add at least one supplier field before updating this existing supplier."];
+  const updateAction = {
+    ...createAction,
+    id: actionId,
+    actionType: "supplier_update",
+    displayLabel: "Update existing supplier in ShelfCycle",
+    selectedTarget,
+    targetCandidates: [selectedTarget],
+    requiredFields: ["selectedTarget.label"],
+    fieldValues: updateFields,
+    warnings,
+    executable: !warnings.length
+  };
+  const createIndex = currentScanPayload.action.proposedActions.findIndex((action) => action.id === createAction.id);
+
+  currentScanPayload.action.proposedActions.splice(Math.max(createIndex + 1, 0), 0, updateAction);
+  return true;
 }
 
 function parseShelfCycleTargetId(url = "", expectedKind = "customer") {
@@ -918,6 +1105,7 @@ function formatSubmitResult(payload = {}) {
 async function submitBusinessCardAction({ actionId = "", actionType = "" } = {}) {
   const action = (currentScanPayload?.action?.proposedActions ?? []).find((item) => item.id === actionId && item.actionType === actionType);
   const credentials = reviewCredentials(currentScanPayload?.reviewUrl || "");
+  let fields = {};
 
   if (!action) {
     throw new Error("Could not find the selected ShelfCycle action on this card extraction.");
@@ -939,7 +1127,7 @@ async function submitBusinessCardAction({ actionId = "", actionType = "" } = {})
   try {
     syncBusinessCardActionFieldValues();
     const selectedTarget = resolvedSubmitTarget(action);
-    const fields = actionFieldsFromBusinessCard(action);
+    fields = actionFieldsFromBusinessCard(action);
     action.fieldValues = fields;
     const response = await fetch(apiUrl(action.submitEndpoint || "/api/shelfcycle/submit-action", currentScanApiBase), {
       method: "POST",
@@ -979,19 +1167,32 @@ async function submitBusinessCardAction({ actionId = "", actionType = "" } = {})
     statusEl.textContent = "Approved action was sent to the local ShelfCycle agent.";
   } catch (error) {
     setBusinessCardActionButtonsDisabled(false);
+
+    if (action.actionType === "supplier_create" && isSupplierAlreadyExistsError(error)) {
+      const promoted = promoteSupplierUpdateFromCreateAction(action, fields);
+
+      if (promoted) {
+        renderResults(currentScanPayload);
+        submitStatus("ShelfCycle reported that this supplier already exists. Review the extracted fields, then use Approve & Update Supplier instead of creating a duplicate.");
+        statusEl.textContent = "Supplier already exists. Update option is now available.";
+        return;
+      }
+    }
+
     throw error;
   }
 }
 
 async function scanBusinessCard() {
-  statusEl.textContent = "Extracting visible business-card information...";
+  statusEl.textContent = "Preparing business-card image...";
   scanButton.disabled = true;
 
   try {
     const backend = await detectLocalBackend();
     currentScanApiBase = backend.apiBase;
     currentScanStoredLocally = backend.isLocal;
-    const imageDataUrl = capturedImageDataUrl || await readImageAsDataUrl(imageInput.files?.[0] ?? null);
+    const rawImageDataUrl = capturedImageDataUrl || await readImageAsDataUrl(imageInput.files?.[0] ?? null);
+    const imageDataUrl = await optimizeImageDataUrl(rawImageDataUrl);
     const hasText = Boolean(textInput.value.trim());
 
     if (imageDataUrl && !hasText && visionStatus.visionConfigured === false) {
@@ -999,25 +1200,38 @@ async function scanBusinessCard() {
       return;
     }
 
-    const response = await fetch(apiUrl("/api/business-card/scan", currentScanApiBase), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        imageDataUrl,
-        text: textInput.value,
-        relationshipHint: relationshipHintForScan(),
-        entryMode: cardEntryModeInput.value,
-        existingCompanyLabel: existingCompanyLabelInput.value,
-        useWebResearch: webResearchInput.checked
-      })
-    });
-    const payload = await readJsonResponse(response, "Business-card extraction API");
+    const requestBody = {
+      imageDataUrl,
+      text: textInput.value,
+      relationshipHint: relationshipHintForScan(),
+      entryMode: cardEntryModeInput.value,
+      existingCompanyLabel: existingCompanyLabelInput.value,
+      useWebResearch: webResearchInput.checked
+    };
+    let payload = null;
 
-    if (!response.ok) {
-      const details = (payload.warnings ?? []).join(" ");
-      throw new Error([payload.message || payload.error || "Business-card extraction failed.", details].filter(Boolean).join(" "));
+    statusEl.textContent = currentScanStoredLocally
+      ? "Extracting visible business-card information locally..."
+      : "Extracting visible business-card information...";
+
+    try {
+      payload = await postBusinessCardScan(currentScanApiBase, requestBody);
+    } catch (error) {
+      if (currentScanStoredLocally || !isTimeoutLikeError(error)) {
+        throw error;
+      }
+
+      statusEl.textContent = "Hosted scan timed out. Checking for the local ClearEdge backend...";
+      const localBackend = await detectLocalBackend();
+
+      if (!localBackend.available || !localBackend.isLocal) {
+        throw error;
+      }
+
+      currentScanApiBase = localBackend.apiBase;
+      currentScanStoredLocally = true;
+      statusEl.textContent = "Retrying through the local ClearEdge backend...";
+      payload = await postBusinessCardScan(currentScanApiBase, requestBody);
     }
 
     approvedBusinessCardTargets = {
@@ -1069,7 +1283,7 @@ imageInput.addEventListener("change", () => {
 
 scanButton.addEventListener("click", () => {
   scanBusinessCard().catch((error) => {
-    statusEl.textContent = error instanceof Error ? error.message : "Business-card extraction failed.";
+    statusEl.textContent = businessCardErrorMessage(error);
   });
 });
 

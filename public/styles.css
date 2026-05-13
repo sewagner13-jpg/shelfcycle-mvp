@@ -43,6 +43,10 @@ body {
   background-size: 32px 32px, auto;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 a {
   color: var(--accent-strong);
   font-weight: 700;
@@ -255,6 +259,89 @@ h3 {
   margin: 0 0 14px;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.ops-status-panel {
+  border-left: 4px solid var(--accent);
+}
+
+.ops-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  gap: 10px;
+}
+
+.ops-status-card {
+  min-height: 108px;
+  padding: 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.ops-status-card span,
+.task-state-line span {
+  display: block;
+  color: var(--subtle);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ops-status-card strong {
+  display: block;
+  margin: 6px 0;
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.ops-status-card small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.38;
+}
+
+.ops-status-live {
+  border-color: rgba(33, 124, 93, 0.28);
+  background: var(--green-soft);
+}
+
+.ops-status-ready {
+  border-color: rgba(21, 86, 143, 0.24);
+  background: var(--blue-soft);
+}
+
+.ops-status-review {
+  border-color: rgba(138, 109, 56, 0.24);
+  background: var(--gold-soft);
+}
+
+.shelfcycle-duplicate-panel {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(168, 69, 34, 0.24);
+  border-radius: 12px;
+  background: var(--warn-soft);
+}
+
+.shelfcycle-duplicate-panel ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.shelfcycle-duplicate-panel li {
+  margin: 6px 0;
+}
+
+.shelfcycle-duplicate-panel li span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.add-shelfcycle-section {
+  display: none !important;
 }
 
 .actions,
@@ -1836,6 +1923,7 @@ button:disabled:hover {
   .record-page,
   .intake-grid,
   .output-grid,
+  .ops-status-grid,
   .operator-packet-grid,
   .decision-hero {
     grid-template-columns: 1fr;

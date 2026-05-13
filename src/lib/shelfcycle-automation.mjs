@@ -123,7 +123,15 @@ function compactErrorText(value = "") {
 }
 
 function recordSegment(kind = "customer") {
-  return kind === "supplier" ? "suppliers" : "customers";
+  if (kind === "supplier") {
+    return "suppliers";
+  }
+
+  if (kind === "product") {
+    return "products";
+  }
+
+  return "customers";
 }
 
 function parseShelfCycleRecordId(url = "", kind = "customer") {
@@ -716,6 +724,183 @@ async function fillFieldByLabel(root, labelPattern, value) {
   return false;
 }
 
+function candidateText(...values) {
+  return values
+    .map((value) => String(value ?? ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function classifyRecordEditButtonCandidate(candidate = {}) {
+  const directText = candidateText(
+    candidate.text,
+    candidate.ariaLabel,
+    candidate.title,
+    candidate.testId,
+    candidate.name
+  );
+  const broadText = candidateText(
+    directText,
+    candidate.className,
+    candidate.html
+  );
+  const viewportWidth = Number(candidate.viewportWidth) || 1440;
+  const top = Number(candidate.top);
+  const right = Number(candidate.right);
+  const width = Number(candidate.width);
+  const height = Number(candidate.height);
+  const visible = candidate.visible !== false && width > 0 && height > 0;
+  const unsafe = /\b(save|cancel|delete|remove|new|add|create|import|export|archive|upload)\b/i.test(directText);
+  const hasEditSignal = /\bedit\b|pencil|iconedit|tabler-icon-edit|lucide-(?:icon-)?(?:edit|pencil)|data-icon=["']?(?:edit|pencil)/i.test(broadText);
+  const isUpperRight = Number.isFinite(top) && Number.isFinite(right) && top >= 0 && top <= 280 && right >= viewportWidth * 0.58;
+  const iconOnly = !candidateText(candidate.text) && (candidate.hasSvg || width <= 76);
+  let score = 0;
+
+  if (!visible || unsafe) {
+    score = -1;
+  } else {
+    if (hasEditSignal) {
+      score += 100;
+    }
+
+    if (isUpperRight) {
+      score += 30;
+    }
+
+    if (iconOnly) {
+      score += 15;
+    }
+
+    if (Number.isFinite(top) && top <= 180) {
+      score += 5;
+    }
+  }
+
+  return {
+    ...candidate,
+    directText,
+    hasEditSignal,
+    iconOnly,
+    isUpperRight,
+    score,
+    unsafe,
+    visible
+  };
+}
+
+async function clickVisibleLocator(page, locator) {
+  const visible = await firstVisible(locator);
+
+  if (!visible) {
+    return false;
+  }
+
+  await visible.scrollIntoViewIfNeeded().catch(() => null);
+  await visible.click({ timeout: 5000 }).catch(async () => {
+    await visible.click({ timeout: 5000, force: true });
+  });
+  await page.waitForTimeout(500);
+  return true;
+}
+
+async function clickHeuristicRecordEditButton(page) {
+  const buttons = page.locator("button");
+  const candidates = await buttons.evaluateAll((nodes) => nodes.map((node, index) => {
+    const rect = node.getBoundingClientRect();
+    const style = window.getComputedStyle(node);
+    const html = node.outerHTML.slice(0, 1500);
+    const className = typeof node.className === "string" ? node.className : String(node.getAttribute("class") || "");
+
+    return {
+      index,
+      text: node.innerText || node.textContent || "",
+      ariaLabel: node.getAttribute("aria-label") || "",
+      title: node.getAttribute("title") || "",
+      testId: node.getAttribute("data-testid") || node.getAttribute("data-test") || "",
+      className,
+      html,
+      hasSvg: Boolean(node.querySelector("svg")),
+      top: rect.top,
+      right: rect.right,
+      width: rect.width,
+      height: rect.height,
+      viewportWidth: window.innerWidth,
+      visible: style.visibility !== "hidden" &&
+        style.display !== "none" &&
+        Number(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+    };
+  }));
+  const ranked = candidates
+    .map((candidate) => classifyRecordEditButtonCandidate(candidate))
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score);
+  const exactCandidate = ranked.find((candidate) => candidate.hasEditSignal);
+  const upperRightIconCandidates = ranked.filter((candidate) => candidate.isUpperRight && candidate.iconOnly);
+  const fallbackCandidate = upperRightIconCandidates.length === 1 ? upperRightIconCandidates[0] : null;
+  const candidate = exactCandidate ?? fallbackCandidate;
+
+  if (!candidate) {
+    return false;
+  }
+
+  await buttons.nth(candidate.index).click({ timeout: 5000 }).catch(async () => {
+    await buttons.nth(candidate.index).click({ timeout: 5000, force: true });
+  });
+  await page.waitForTimeout(500);
+  return true;
+}
+
+async function clickRecordEditButton(page, recordLabel = "record") {
+  await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => null);
+  await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => null);
+  await page.waitForTimeout(750).catch(() => null);
+
+  const candidates = [
+    page.getByRole("button", { name: /^edit$/i }).first(),
+    page.getByRole("button", { name: /edit/i }).first(),
+    page.getByRole("link", { name: /edit/i }).first(),
+    page.locator('[title*="Edit" i]').first(),
+    page.locator('[aria-label*="Edit" i]').first(),
+    page.locator('[data-testid*="edit" i], [data-test*="edit" i]').first(),
+    page.locator('button[aria-label*="Edit" i]').first(),
+    page.locator('button:has(svg[class*="edit" i])').first(),
+    page.locator('button:has(svg[class*="pencil" i])').first(),
+    page.locator('button:has([class*="tabler-icon-edit" i])').first(),
+    page.locator('a[href*="/edit"]').first()
+  ];
+
+  for (const candidate of candidates) {
+    if (await clickVisibleLocator(page, candidate)) {
+      return true;
+    }
+  }
+
+  if (await clickHeuristicRecordEditButton(page)) {
+    return true;
+  }
+
+  throw new Error(`Could not find an Edit button for the ShelfCycle ${recordLabel}.`);
+}
+
+async function saveOpenDialog(page, dialog, { recordName = "", actionLabel = "save" } = {}) {
+  await closeOpenDropdowns(page).catch(() => null);
+  const saveButton = dialog.getByRole("button", { name: /^save$/i }).first();
+
+  await saveButton.click({ timeout: 10000 }).catch(async (error) => {
+    await closeOpenDropdowns(page).catch(() => null);
+    await saveButton.click({ timeout: 5000, force: true }).catch(() => {
+      throw error;
+    });
+  });
+  await requireDialogClosedAfterSave(page, dialog, {
+    recordName,
+    actionLabel
+  });
+}
+
 async function fillFirstMatching(root, selectors = [], value = "") {
   const text = String(value ?? "").trim();
 
@@ -1171,12 +1356,7 @@ export async function submitShelfCycleContact(submission = {}) {
     const dialog = page.getByRole("dialog").last();
     await dialog.waitFor({ timeout: 10000 });
 
-    await fillFieldByLabel(dialog, /^name\b/i, submission.fields.name);
-    await fillFieldByLabel(dialog, /^title\b/i, submission.fields.title);
-    await fillFieldByLabel(dialog, /^email\b/i, submission.fields.email);
-    await fillFieldByLabel(dialog, /^phone\b|office/i, submission.fields.phone || submission.fields.officePhone);
-    await fillFieldByLabel(dialog, /mobile/i, submission.fields.mobilePhone);
-    await fillFieldByLabel(dialog, /fax/i, submission.fields.faxPhone);
+    await fillContactDialogFields(dialog, submission.fields);
     const documentTypes = normalizeContactDocumentTypes(targetKind, submission.fields.documentTypes);
     const {
       selectedCount: selectedDocumentTypeCount,
@@ -1228,6 +1408,133 @@ export async function submitShelfCycleContact(submission = {}) {
       supplierName: submission.supplierName,
       name: submission.fields.name,
       email: submission.fields.email,
+      savedAtUrl: page.url()
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+async function fillContactDialogFields(dialog, fields = {}) {
+  await fillFieldByLabel(dialog, /^name\b/i, fields.name);
+  await fillFieldByLabel(dialog, /^title\b/i, fields.title);
+  await fillFieldByLabel(dialog, /^email\b/i, fields.email);
+  await fillFieldByLabel(dialog, /^phone\b|office/i, fields.phone || fields.officePhone);
+  await fillFieldByLabel(dialog, /mobile/i, fields.mobilePhone);
+  await fillFieldByLabel(dialog, /fax/i, fields.faxPhone);
+}
+
+async function resolveContactRecordUrl(page, submission = {}) {
+  if (submission.contactId) {
+    return `https://app.shelfcycle.com/org-clearedge/contacts/${submission.contactId}`;
+  }
+
+  const label = String(submission.contactName || submission.fields?.name || submission.fields?.email || "").trim();
+
+  if (!label) {
+    throw new Error("Could not resolve a contact page because the contact name/email is missing.");
+  }
+
+  const targetKind = contactTargetKindFromSubmission(submission);
+  let targetUrl = "";
+
+  if (submission.supplierId) {
+    targetUrl = `https://app.shelfcycle.com/org-clearedge/suppliers/${submission.supplierId}/contacts`;
+  } else if (submission.customerId) {
+    targetUrl = `https://app.shelfcycle.com/org-clearedge/customers/${submission.customerId}/contacts`;
+  } else if (submission.supplierName) {
+    const companyUrl = await resolveCompanyRecordUrl(page, {
+      kind: "supplier",
+      name: submission.supplierName
+    });
+    targetUrl = `${companyUrl.replace(/\/+$/, "")}/contacts`;
+  } else if (submission.customerName) {
+    const companyUrl = await resolveCompanyRecordUrl(page, {
+      kind: "customer",
+      name: submission.customerName
+    });
+    targetUrl = `${companyUrl.replace(/\/+$/, "")}/contacts`;
+  } else {
+    targetUrl = "https://app.shelfcycle.com/org-clearedge/contacts";
+  }
+
+  await page.goto(safeShelfCycleUrl(targetUrl), { waitUntil: "domcontentloaded" });
+  await page.bringToFront();
+  await dismissCommonPopups(page);
+  await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => null);
+  await page.waitForTimeout(800);
+
+  const pattern = new RegExp(escapeRegExp(label), "i");
+  const candidates = [
+    page.locator('a[href*="/contacts/"]').filter({ hasText: pattern }).first(),
+    page.getByRole("link", { name: pattern }).first(),
+    page.locator("tr").filter({ hasText: pattern }).first(),
+    page.locator("[role='row']").filter({ hasText: pattern }).first()
+  ];
+
+  for (const candidate of candidates) {
+    const visible = await firstVisible(candidate);
+
+    if (!visible) {
+      continue;
+    }
+
+    await visible.scrollIntoViewIfNeeded().catch(() => null);
+    await Promise.all([
+      page.waitForURL(/\/org-clearedge\/contacts\/[^/?#]+/i, { timeout: 7000 }).catch(() => null),
+      visible.click({ timeout: 5000 }).catch(async () => visible.click({ timeout: 5000, force: true }))
+    ]);
+    await page.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => null);
+
+    if (/\/org-clearedge\/contacts\/[^/?#]+/i.test(page.url())) {
+      return page.url();
+    }
+
+    const dialog = page.getByRole("dialog").last();
+    if (await dialog.isVisible({ timeout: 1500 }).catch(() => false)) {
+      return page.url();
+    }
+  }
+
+  throw new Error(`Could not resolve a ${targetKind} contact page for ${label}.`);
+}
+
+export async function submitShelfCycleContactUpdate(submission = {}) {
+  const context = await createContext({ headless: false });
+
+  try {
+    const page = await getWorkingPage(context);
+    const contactUrl = await resolveContactRecordUrl(page, submission);
+
+    if (/\/org-clearedge\/contacts\/[^/?#]+/i.test(contactUrl) && page.url() !== contactUrl) {
+      await page.goto(safeShelfCycleUrl(contactUrl), { waitUntil: "domcontentloaded" });
+    }
+
+    await page.bringToFront();
+    await dismissCommonPopups(page);
+
+    let dialog = page.getByRole("dialog").last();
+    if (!(await dialog.isVisible({ timeout: 1000 }).catch(() => false))) {
+      await clickRecordEditButton(page, "contact");
+      dialog = page.getByRole("dialog").last();
+    }
+
+    await dialog.waitFor({ timeout: 10000 });
+    await fillContactDialogFields(dialog, submission.fields ?? {});
+    await saveOpenDialog(page, dialog, {
+      recordName: submission.contactName || submission.fields?.name || submission.fields?.email,
+      actionLabel: "update contact"
+    });
+
+    return {
+      ok: true,
+      recordType: "contact",
+      contactId: submission.contactId,
+      contactName: submission.contactName || submission.fields?.name || submission.fields?.email,
+      customerId: submission.customerId,
+      customerName: submission.customerName,
+      supplierId: submission.supplierId,
+      supplierName: submission.supplierName,
       savedAtUrl: page.url()
     };
   } finally {
@@ -1305,23 +1612,7 @@ export async function submitShelfCycleSupplier(submission = {}) {
     const dialog = page.getByRole("dialog").last();
     await dialog.waitFor({ timeout: 10000 });
 
-    await fillFieldByLabel(dialog, /^name\b/i, fields.name);
-    await fillFieldByLabel(dialog, /^phone\b/i, fields.phone);
-    await fillFieldByLabel(dialog, /^email\b/i, fields.email);
-    await fillFieldByLabel(dialog, /^website\b/i, fields.website);
-    await fillFieldByLabel(dialog, /^street 1\b|^street address$/i, fields.street1);
-    await fillFieldByLabel(dialog, /^street 2\b|street address 2/i, fields.street2);
-    await fillFieldByLabel(dialog, /^city\b/i, fields.city);
-    await selectSearchOption(dialog, { label: /^country$/i, placeholder: "Select country", value: fields.country });
-    await fillFieldByLabel(dialog, /state|region/i, fields.stateRegion);
-    await fillFieldByLabel(dialog, /^zip\b|postal/i, fields.zip);
-    await selectSearchOption(dialog, { label: /payment terms/i, placeholder: "Select Payment Terms", value: fields.paymentTerms });
-    await fillFieldByLabel(dialog, /credit limit/i, fields.creditLimit);
-    await fillFieldByLabel(dialog, /ach routing/i, fields.achRoutingNumber);
-    await fillFieldByLabel(dialog, /ach account/i, fields.achAccountNumber);
-    await selectSearchOption(dialog, { label: /cost account/i, placeholder: "Select Cost Account", value: fields.costAccount });
-    await selectSearchOption(dialog, { label: /preferred unit of measure/i, placeholder: "Select Unit", value: fields.preferredUnitOfMeasure });
-    await selectSearchOption(dialog, { label: /default supplier rep/i, placeholder: "Supplier Rep", value: fields.defaultSupplierRep });
+    await fillSupplierDialogFields(dialog, fields);
 
     const saveButton = dialog.getByRole("button", { name: /^save$/i }).first();
     await saveButton.click({ timeout: 10000 });
@@ -1341,6 +1632,67 @@ export async function submitShelfCycleSupplier(submission = {}) {
       supplierId: parseShelfCycleRecordId(savedAtUrl, "supplier"),
       supplierName: fields.name,
       savedAtUrl
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+async function fillSupplierDialogFields(dialog, fields = {}) {
+  await fillFieldByLabel(dialog, /^name\b/i, fields.name);
+  await fillFieldByLabel(dialog, /^phone\b/i, fields.phone);
+  await fillFieldByLabel(dialog, /^email\b/i, fields.email);
+  await fillFieldByLabel(dialog, /^website\b/i, fields.website);
+  await fillFieldByLabel(dialog, /^street 1\b|^street address$/i, fields.street1);
+  await fillFieldByLabel(dialog, /^street 2\b|street address 2/i, fields.street2);
+  await fillFieldByLabel(dialog, /^city\b/i, fields.city);
+  await selectSearchOption(dialog, { label: /^country$/i, placeholder: "Select country", value: fields.country });
+  await fillFieldByLabel(dialog, /state|region/i, fields.stateRegion);
+  await fillFieldByLabel(dialog, /^zip\b|postal/i, fields.zip);
+  await selectSearchOption(dialog, { label: /payment terms/i, placeholder: "Select Payment Terms", value: fields.paymentTerms });
+  await fillFieldByLabel(dialog, /credit limit/i, fields.creditLimit);
+  await fillFieldByLabel(dialog, /ach routing/i, fields.achRoutingNumber);
+  await fillFieldByLabel(dialog, /ach account/i, fields.achAccountNumber);
+  await selectSearchOption(dialog, { label: /cost account/i, placeholder: "Select Cost Account", value: fields.costAccount });
+  await selectSearchOption(dialog, { label: /preferred unit of measure/i, placeholder: "Select Unit", value: fields.preferredUnitOfMeasure });
+  await selectSearchOption(dialog, { label: /default supplier rep/i, placeholder: "Supplier Rep", value: fields.defaultSupplierRep });
+}
+
+export async function submitShelfCycleSupplierUpdate(submission = {}) {
+  const context = await createContext({ headless: false });
+
+  try {
+    const page = await getWorkingPage(context);
+    const fields = submission.fields ?? {};
+    const targetUrl = submission.supplierId
+      ? `https://app.shelfcycle.com/org-clearedge/suppliers/${submission.supplierId}`
+      : await resolveCompanyRecordUrl(page, {
+          kind: "supplier",
+          name: submission.supplierName || fields.name
+        });
+
+    if (!targetUrl || !targetUrl.includes("/suppliers/")) {
+      throw new Error(`Could not resolve a supplier page for ${submission.supplierName || fields.name || "the selected supplier"}.`);
+    }
+
+    await page.goto(safeShelfCycleUrl(targetUrl), { waitUntil: "domcontentloaded" });
+    await page.bringToFront();
+    await dismissCommonPopups(page);
+    await clickRecordEditButton(page, "supplier");
+    const dialog = page.getByRole("dialog").last();
+    await dialog.waitFor({ timeout: 10000 });
+    await fillSupplierDialogFields(dialog, fields);
+    await saveOpenDialog(page, dialog, {
+      recordName: submission.supplierName || fields.name,
+      actionLabel: "update supplier"
+    });
+
+    return {
+      ok: true,
+      recordType: "supplier",
+      supplierId: submission.supplierId || parseShelfCycleRecordId(page.url(), "supplier"),
+      supplierName: submission.supplierName || fields.name,
+      savedAtUrl: page.url()
     };
   } finally {
     await context.close();
@@ -1388,47 +1740,77 @@ export async function submitShelfCycleProductCode(submission = {}) {
 
   try {
     const page = await getWorkingPage(context);
-    await page.goto(safeShelfCycleUrl(submission.url), { waitUntil: "domcontentloaded" });
+    const fields = submission.fields ?? {};
+    const isUpdate = fields.mode === "update" || Boolean(submission.productId || submission.productName);
+    const targetUrl = isUpdate
+      ? (submission.productId
+        ? `https://app.shelfcycle.com/org-clearedge/products/${submission.productId}`
+        : await findCompanyRecordUrl(page, {
+            kind: "product",
+            name: submission.productName || fields.code || fields.productName,
+            listUrl: "https://app.shelfcycle.com/org-clearedge/products",
+            trustCurrentRecord: false
+          }))
+      : (submission.url || "https://app.shelfcycle.com/org-clearedge/products");
+
+    await page.goto(safeShelfCycleUrl(targetUrl), { waitUntil: "domcontentloaded" });
     await page.bringToFront();
     await dismissCommonPopups(page);
 
-    await page.getByRole("button", { name: /new product code/i }).click({ timeout: 10000 });
+    if (isUpdate) {
+      await clickRecordEditButton(page, "product");
+    } else {
+      await page.getByRole("button", { name: /new product code/i }).click({ timeout: 10000 });
+    }
+
     const dialog = page.getByRole("dialog").last();
     await dialog.waitFor({ timeout: 10000 });
 
-    await fillFieldByLabel(dialog, /^code/i, submission.fields.code);
-    await selectSearchOption(dialog, { label: /product family/i, placeholder: "Select a Product Family", value: submission.fields.productFamily });
-    await selectSearchOption(dialog, { label: /packaging type/i, placeholder: "Packaging Type", value: submission.fields.packagingType || "Fixed" });
-    await selectSearchOption(dialog, { label: /^packaging/i, placeholder: "Select Packaging", value: submission.fields.packaging });
-    await fillFirstMatching(dialog, ['input[placeholder="123.45"]'], submission.fields.quantityPerPackage);
-    await selectSearchOption(dialog, { label: /supplier type/i, placeholder: "Select a Supplier Type", value: submission.fields.supplierType || "Variable" });
-    await selectSearchOption(dialog, { label: /^supplier$/i, placeholder: "Supplier", value: submission.fields.supplier });
-    await fillFieldByLabel(dialog, /cas number/i, submission.fields.casNumber);
-    await fillFieldByLabel(dialog, /nmfc/i, submission.fields.nmfcCode);
-    await fillFieldByLabel(dialog, /freight class/i, submission.fields.freightClass);
-    await selectSearchOption(dialog, { label: /pallet/i, placeholder: "Select a Pallet", value: submission.fields.pallet });
-    await fillFieldByLabel(dialog, /packages per pallet/i, submission.fields.packagesPerPallet);
-    await selectSearchOption(dialog, { label: /un\/na number/i, placeholder: "e.g., UN1993", value: submission.fields.unNumber });
-    await selectSearchOption(dialog, { label: /packing group/i, placeholder: "Select packing group", value: submission.fields.packingGroup });
-    await fillFieldByLabel(dialog, /proper shipping name/i, submission.fields.properShippingName);
+    await fillProductCodeDialogFields(dialog, fields);
 
-    if (submission.fields.sdsPath) {
-      await dialog.locator('input[type="file"]').first().setInputFiles(submission.fields.sdsPath);
+    if (fields.sdsPath) {
+      await dialog.locator('input[type="file"]').first().setInputFiles(fields.sdsPath);
     }
 
-    const saveButton = dialog.getByRole("button", { name: /^save$/i }).first();
-    await saveButton.click({ timeout: 10000 });
-    await page.getByText(new RegExp(submission.fields.code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")).waitFor({ timeout: 10000 }).catch(() => null);
+    await saveOpenDialog(page, dialog, {
+      recordName: submission.productName || fields.code || fields.productName,
+      actionLabel: isUpdate ? "update product" : "save product"
+    });
+    const verificationLabel = fields.code || fields.productName || submission.productName;
+    if (verificationLabel) {
+      await page.getByText(new RegExp(escapeRegExp(verificationLabel), "i")).waitFor({ timeout: 10000 }).catch(() => null);
+    }
 
     return {
       ok: true,
       recordType: "product_code",
-      code: submission.fields.code,
+      productId: submission.productId || parseShelfCycleRecordId(page.url(), "product"),
+      productName: submission.productName || fields.productName || fields.code,
+      code: fields.code,
+      mode: isUpdate ? "update" : "create",
       savedAtUrl: page.url()
     };
   } finally {
     await context.close();
   }
+}
+
+async function fillProductCodeDialogFields(dialog, fields = {}) {
+  await fillFieldByLabel(dialog, /^code/i, fields.code);
+  await selectSearchOption(dialog, { label: /product family/i, placeholder: "Select a Product Family", value: fields.productFamily || fields.productName });
+  await selectSearchOption(dialog, { label: /packaging type/i, placeholder: "Packaging Type", value: fields.packagingType || "Fixed" });
+  await selectSearchOption(dialog, { label: /^packaging/i, placeholder: "Select Packaging", value: fields.packaging });
+  await fillFirstMatching(dialog, ['input[placeholder="123.45"]'], fields.quantityPerPackage);
+  await selectSearchOption(dialog, { label: /supplier type/i, placeholder: "Select a Supplier Type", value: fields.supplierType || "Variable" });
+  await selectSearchOption(dialog, { label: /^supplier$/i, placeholder: "Supplier", value: fields.supplier });
+  await fillFieldByLabel(dialog, /cas number/i, fields.casNumber);
+  await fillFieldByLabel(dialog, /nmfc/i, fields.nmfcCode);
+  await fillFieldByLabel(dialog, /freight class/i, fields.freightClass);
+  await selectSearchOption(dialog, { label: /pallet/i, placeholder: "Select a Pallet", value: fields.pallet });
+  await fillFieldByLabel(dialog, /packages per pallet/i, fields.packagesPerPallet);
+  await selectSearchOption(dialog, { label: /un\/na number/i, placeholder: "e.g., UN1993", value: fields.unNumber });
+  await selectSearchOption(dialog, { label: /packing group/i, placeholder: "Select packing group", value: fields.packingGroup });
+  await fillFieldByLabel(dialog, /proper shipping name/i, fields.properShippingName);
 }
 
 export async function submitShelfCycleProductDocument(submission = {}) {

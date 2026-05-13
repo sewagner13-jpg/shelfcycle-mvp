@@ -42,9 +42,11 @@
           <div class="topbar-actions">
             <button id="load-review" class="ghost">Load Review Packet</button>
             <button id="open-session" class="ghost">Open ShelfCycle Session</button>
-            <button id="submit-note" class="primary">Approve And Run ShelfCycle Agent</button>
+            <button id="submit-note" class="primary">Load Review Packet First</button>
           </div>
         </header>
+
+        <section class="panel ops-status-panel" data-ops-status></section>
 
         <section class="panel controls">
           <div class="panel-header">
@@ -138,6 +140,7 @@
       </main>
     </div>
 
+    <script type="module" src="/ops-status.js"></script>
     <script type="module" src="/review-submit.js"></script>
   </body>
 </html>

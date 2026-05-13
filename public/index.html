@@ -47,6 +47,8 @@
           </div>
         </header>
 
+        <section class="panel ops-status-panel" data-ops-status></section>
+
         <section class="panel">
           <div class="panel-header">
             <div>
@@ -68,10 +70,10 @@
           <div class="record-main panel">
             <div class="panel-header">
               <div>
-                <p class="section-kicker">Priority Queue</p>
-                <h2>Top actions from the latest brief</h2>
+                <p class="section-kicker">Unified Task Queue</p>
+                <h2>Top actions from Gmail, Messages, and packets</h2>
               </div>
-              <span class="priority-pill priority-high">Decision work</span>
+              <span class="priority-pill priority-high">Action first</span>
             </div>
             <div id="home-top-actions" class="home-action-stack">
               <article class="brief-action-card">
@@ -148,6 +150,7 @@
       </main>
     </div>
 
+    <script type="module" src="/ops-status.js"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

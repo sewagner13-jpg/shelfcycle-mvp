@@ -139,6 +139,8 @@ export function createReviewActionRecord(item = {}) {
     subject: item.subject || "",
     workflow: item.analysis?.workflow || item.workflow || "",
     fields: item.analysis?.fields ?? item.fields ?? {},
+    documentType: item.analysis?.documentType ?? item.documentType ?? "",
+    aiDerivedFields: item.analysis?.aiDerivedFields ?? item.aiDerivedFields ?? [],
     relationship: item.relationship ?? {},
     silo: item.silo ?? {},
     state: item.state ?? {},

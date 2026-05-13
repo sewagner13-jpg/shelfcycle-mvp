@@ -25,17 +25,25 @@ test("parseContactInput extracts common fields", () => {
 test("parseProductDocument identifies TDS and shipping fields", () => {
   const result = parseProductDocument(`
     Technical Data Sheet
+    Product Code: ARG301-D
     Product Name: ACCESS Organosilane G301
+    Product Family: ACCESS Organosilane
     Supplier: ACCESS Rudolf Technologies
     CAS: 2768-02-7
+    Packaging: Drum
+    Quantity per package: 441 lb
     Proper Shipping Name: Flammable liquid, n.o.s.
     Signal Word: Danger
   `);
 
   assert.equal(result.documentType, "TDS");
+  assert.equal(result.fields.code, "ARG301-D");
   assert.equal(result.fields.productName, "ACCESS Organosilane G301");
+  assert.equal(result.fields.productFamily, "ACCESS Organosilane");
   assert.equal(result.fields.supplier, "ACCESS Rudolf Technologies");
   assert.equal(result.fields.casNumber, "2768-02-7");
+  assert.equal(result.fields.packaging, "Drum");
+  assert.equal(result.fields.quantityPerPackage, "441 lb");
   assert.equal(result.attachmentPlan.target, "product documents drawer");
 });
 

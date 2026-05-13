@@ -228,7 +228,7 @@ function matchCandidates(matches = {}, keys = []) {
 }
 
 function candidateLabel(candidate = {}) {
-  return candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
+  return candidate.code || candidate.sku || candidate.name || candidate.customerName || candidate.supplierName || candidate.companyName || candidate.email || "";
 }
 
 function candidateRelationship(candidate = {}) {
@@ -240,6 +240,7 @@ function shelfCycleStatusLabel(action = {}) {
   const customer = matchCandidates(matches, ["customer", "customers"]).find((candidate) => candidateLabel(candidate));
   const supplier = matchCandidates(matches, ["supplier", "suppliers"]).find((candidate) => candidateLabel(candidate));
   const contacts = matchCandidates(matches, ["contact", "contacts"]);
+  const product = matchCandidates(matches, ["product", "products"]).find((candidate) => candidateLabel(candidate));
   const customerContact = contacts.find((candidate) => candidateRelationship(candidate) === "customer" && candidateLabel(candidate));
   const supplierContact = contacts.find((candidate) => candidateRelationship(candidate) === "supplier" && candidateLabel(candidate));
   const creates = action.suggestedCreates ?? action.analysis?.suggestedCreates ?? [];
@@ -260,6 +261,10 @@ function shelfCycleStatusLabel(action = {}) {
     return `Existing supplier contact: ${candidateLabel(supplierContact)}`;
   }
 
+  if (product) {
+    return `Existing product: ${candidateLabel(product)}`;
+  }
+
   if (creates.some((item) => item.type === "customer")) {
     return "No existing customer found; create candidate available.";
   }
@@ -268,7 +273,11 @@ function shelfCycleStatusLabel(action = {}) {
     return "No existing supplier found; create candidate available.";
   }
 
-  return "No confirmed ShelfCycle match.";
+  if ((action.proposedActions ?? []).some((item) => item.actionType === "product_create_or_update")) {
+    return "No existing product confirmed; product create/update candidate available.";
+  }
+
+  return "No confirmed ShelfCycle customer, supplier, contact, or product match.";
 }
 
 function renderOperatorPacket(action = {}) {
@@ -916,12 +925,14 @@ function updateShelfCycleLinks() {
 
   if (addPacketToShelfCycleEl) {
     addPacketToShelfCycleEl.href = localSubmitUrl("packet", proposedAction);
+    addPacketToShelfCycleEl.textContent = "Approve & Run ShelfCycle Entry";
     addPacketToShelfCycleEl.hidden = !canSubmit;
   }
 
   for (const link of sectionShelfCycleLinks) {
     link.href = localSubmitUrl(link.dataset.section || "packet", proposedAction);
-    link.hidden = !canSubmit;
+    link.textContent = "Open approval";
+    link.hidden = true;
   }
 }
 
