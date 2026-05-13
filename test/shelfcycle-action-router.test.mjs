@@ -960,3 +960,37 @@ test("product intake blocks product-code creation until a new product family is 
   assert.equal(product.executable, false);
   assert.match(product.warnings.join(" "), /Verify the Product Family exists/);
 });
+
+test("product intake reuses matched product family for a new package code", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    fields: {
+      code: "XP1127-D",
+      productFamily: "ONGRONAT XP 1127",
+      packagingType: "Fixed",
+      packaging: "Drum (kg)",
+      quantityPerPackage: "250",
+      supplierType: "Variable"
+    },
+    matches: {
+      customer: [],
+      product: [
+        {
+          score: 0.95,
+          candidate: {
+            id: "existing-family",
+            code: "XP1127-T",
+            name: "ONGRONAT XP 1127 Tote",
+            family: "ONGRONAT XP 1127",
+            casNumber: "101-68-8"
+          }
+        }
+      ]
+    }
+  }));
+  const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+
+  assert.equal(product.executable, true);
+  assert.equal(product.fieldValues.productFamily, "ONGRONAT XP 1127");
+  assert.match(product.fieldValues.reuseGuidance, /Reuse family-level/);
+});

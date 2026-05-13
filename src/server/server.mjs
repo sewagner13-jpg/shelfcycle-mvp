@@ -1216,12 +1216,14 @@ function withUpdatedProductWritePlan(result = {}) {
   }
 
   const fields = result.fields ?? {};
+  const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
+  const matchedFamily = matchedProduct?.family || matchedProduct?.productFamily || "";
   const normalizedProductFields = {
     ...fields,
+    productFamily: fields.productFamily || matchedFamily,
     packagingType: fields.packagingType || "Fixed",
     supplierType: fields.supplierType || "Variable"
   };
-  const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
   const documentType = result.documentType ?? fields.documentType ?? "SDS";
   const shelfCycleRequirements = shelfCycleProductRequirementsForFields(normalizedProductFields);
 

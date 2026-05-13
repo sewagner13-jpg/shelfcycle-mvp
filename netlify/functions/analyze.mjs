@@ -119,12 +119,14 @@ function withProductWritePlan(result = {}) {
     return result;
   }
 
+  const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
+  const matchedFamily = matchedProduct?.family || matchedProduct?.productFamily || "";
   const fields = {
     ...(result.fields ?? {}),
+    productFamily: result.fields?.productFamily || matchedFamily,
     packagingType: result.fields?.packagingType || "Fixed",
     supplierType: result.fields?.supplierType || "Variable"
   };
-  const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
   const documentType = result.documentType ?? fields.documentType ?? "SDS";
   const shelfCycleRequirements = shelfCycleProductRequirementsForFields(fields);
 
