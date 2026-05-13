@@ -1713,29 +1713,47 @@ function aiDerivedSourceLines(aiDerivedFields = []) {
 }
 
 async function extractPdfSourceFile(file) {
-  const response = await fetch("/api/product-document/extract", {
+  const body = JSON.stringify({
+    fileName: file.name,
+    mimeType: file.type || "application/pdf",
+    size: file.size,
+    dataUrl: await fileToDataUrl(file)
+  });
+  const request = {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
-    body: JSON.stringify({
-      fileName: file.name,
-      mimeType: file.type || "application/pdf",
-      size: file.size,
-      dataUrl: await fileToDataUrl(file)
-    })
-  });
-  const text = await response.text();
+    body
+  };
+  let response = await fetch("/api/product-document/extract", request);
+  let text = await response.text();
   let result = {};
 
   try {
     result = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`PDF extraction returned a non-JSON response: ${text.slice(0, 160)}`);
+    if (!isLocalMvpHost()) {
+      response = await fetch(`${LOCAL_MVP_API_BASE}/api/product-document/extract`, request);
+      text = await response.text();
+
+      try {
+        result = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error("Hosted PDF extraction returned HTML and the local ClearEdge backend did not return JSON. Open http://localhost:4318/product-intake.html, or redeploy the hosted product-document function.");
+      }
+    } else {
+      throw new Error("Local PDF extraction endpoint returned HTML instead of JSON. Restart the local ClearEdge backend and try again.");
+    }
   }
 
   if (!response.ok || !result.ok) {
-    throw new Error((result.warnings ?? []).join(" ") || result.error || "PDF extraction failed.");
+    const details = [
+      ...(result.warnings ?? []),
+      result.message || "",
+      result.retryLocal && !isLocalMvpHost() ? "Try the local app for large/scanned PDFs: http://localhost:4318/product-intake.html" : ""
+    ].filter(Boolean).join(" ");
+    throw new Error(details || result.error || "PDF extraction failed.");
   }
 
   return result;
