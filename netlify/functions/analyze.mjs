@@ -8,6 +8,8 @@ import { shelfCycleProductRequirementsForFields } from "../../src/lib/shelfcycle
 import { getEnv } from "./_shared/env.mjs";
 import { loadBriefSettings, loadKnowledgeBundle, saveReviewAction } from "./_shared/knowledge-store.mjs";
 
+const HOSTED_ANALYZE_OPENAI_TIMEOUT_MS = 7000;
+
 function compactWhitespace(value = "") {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -99,12 +101,21 @@ function mergeReferenceData(payloadReferenceData = {}, hostedKnowledge = {}) {
 
 function openAiConfigFromSettings(settings = {}) {
   const syncedOpenAiConfig = settings.openAiConfig ?? settings.openAIConfig ?? settings.aiBriefConfig ?? {};
+  const configuredTimeout = Number.parseInt(String(
+    syncedOpenAiConfig.productDocumentTimeoutMs ||
+      syncedOpenAiConfig.timeoutMs ||
+      getEnv("OPENAI_PRODUCT_DOCUMENT_TIMEOUT_MS") ||
+      ""
+  ), 10);
 
   return {
     apiKey: syncedOpenAiConfig.apiKey || getEnv("OPENAI_API_KEY") || "",
     model: syncedOpenAiConfig.productDocumentModel || syncedOpenAiConfig.model || getEnv("OPENAI_PRODUCT_DOCUMENT_MODEL") || getEnv("OPENAI_MODEL") || "",
     productDocumentModel: syncedOpenAiConfig.productDocumentModel || getEnv("OPENAI_PRODUCT_DOCUMENT_MODEL") || "",
-    timeoutMs: syncedOpenAiConfig.productDocumentTimeoutMs || syncedOpenAiConfig.timeoutMs || getEnv("OPENAI_PRODUCT_DOCUMENT_TIMEOUT_MS") || ""
+    timeoutMs: Math.min(
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : HOSTED_ANALYZE_OPENAI_TIMEOUT_MS,
+      HOSTED_ANALYZE_OPENAI_TIMEOUT_MS
+    )
   };
 }
 
