@@ -96,6 +96,8 @@ export default async (req) => {
       text: "",
       fields: {},
       aiDerivedFields: [],
+      missingShelfCycleFields: [],
+      shelfCycleNotes: [],
       warnings: []
     };
 
@@ -127,6 +129,8 @@ export default async (req) => {
       method,
       fields: aiResult.fields ?? {},
       aiDerivedFields: aiResult.aiDerivedFields ?? [],
+      missingShelfCycleFields: aiResult.missingShelfCycleFields ?? [],
+      shelfCycleNotes: aiResult.shelfCycleNotes ?? [],
       warnings: combinedWarnings,
       source: "netlify"
     }, { status: text ? 200 : 422 });

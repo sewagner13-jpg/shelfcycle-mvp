@@ -1448,6 +1448,25 @@ button:disabled:hover {
   background: rgba(255, 251, 235, 0.86);
 }
 
+.shelfcycle-warning-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(180, 83, 9, 0.22);
+  border-radius: 12px;
+  color: #713f12;
+  background: rgba(255, 251, 235, 0.88);
+}
+
+.shelfcycle-warning-box strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.shelfcycle-warning-box ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .shelfcycle-research-panel {
   padding: 12px;
   border: 1px dashed var(--line);

@@ -158,7 +158,7 @@ function enrichWithMatches(result, refs, originalText) {
   }
 
   if (result.workflow === "new_product") {
-    const productQuery = [result.fields?.productName, result.fields?.casNumber, originalText]
+    const productQuery = [result.fields?.productName, result.fields?.productFamily, result.fields?.code, result.fields?.casNumber, originalText]
       .filter(Boolean)
       .join(" ");
 

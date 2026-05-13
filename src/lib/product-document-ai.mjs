@@ -1,4 +1,5 @@
 import { firstNonEmpty, compactWhitespace } from "./normalize.mjs";
+import { productRequirementsPromptBlock } from "./shelfcycle-product-requirements.mjs";
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
 const DEFAULT_TIMEOUT_MS = 90000;
@@ -23,24 +24,42 @@ function productDocumentSchema() {
   const fieldProperties = {
     documentType: { type: "string", enum: ["SDS", "TDS", "COA", "SPEC", "OTHER"] },
     extractedText: { type: "string" },
+    shelfCycleReadySummary: { type: "string" },
     productName: { type: "string" },
     code: { type: "string" },
     productFamily: { type: "string" },
+    productFamilyDescription: { type: "string" },
+    chemicalName: { type: "string" },
+    aliases: { type: "string" },
     supplier: { type: "string" },
     casNumber: { type: "string" },
     packagingType: { type: "string" },
     packaging: { type: "string" },
     quantityPerPackage: { type: "string" },
+    unitOfMeasure: { type: "string" },
     supplierType: { type: "string" },
     unNumber: { type: "string" },
     packingGroup: { type: "string" },
-    properShippingName: { type: "string" },
     hazardClass: { type: "string" },
+    specialDesignation: { type: "string" },
+    properShippingName: { type: "string" },
     signalWord: { type: "string" },
+    hazardSymbols: { type: "string" },
     nmfcCode: { type: "string" },
     freightClass: { type: "string" },
     pallet: { type: "string" },
-    packagesPerPallet: { type: "string" }
+    packagesPerPallet: { type: "string" },
+    physicalState: { type: "string" },
+    appearance: { type: "string" },
+    density: { type: "string" },
+    specificGravity: { type: "string" },
+    viscosity: { type: "string" },
+    flashPoint: { type: "string" },
+    boilingPoint: { type: "string" },
+    storage: { type: "string" },
+    shelfLife: { type: "string" },
+    recommendedUse: { type: "string" },
+    documentDate: { type: "string" }
   };
 
   return {
@@ -69,9 +88,17 @@ function productDocumentSchema() {
       warnings: {
         type: "array",
         items: { type: "string" }
+      },
+      missingShelfCycleFields: {
+        type: "array",
+        items: { type: "string" }
+      },
+      shelfCycleNotes: {
+        type: "array",
+        items: { type: "string" }
       }
     },
-    required: ["fields", "aiDerivedFields", "warnings"]
+    required: ["fields", "aiDerivedFields", "warnings", "missingShelfCycleFields", "shelfCycleNotes"]
   };
 }
 
@@ -89,21 +116,27 @@ export function resolveProductDocumentAiConfig(config = {}) {
   };
 }
 
-export function mergeProductAiFields(result = {}, ai = {}) {
+export function mergeProductAiFields(result = {}, ai = {}, { preferAiFields = false } = {}) {
   const currentFields = result.fields ?? {};
   const aiFields = ai.fields ?? {};
   const mergedFields = { ...currentFields };
   const appliedAiDerivedFields = [];
+  const appliedKeys = new Set();
 
   for (const item of ai.aiDerivedFields ?? []) {
     const key = compactWhitespace(item.field);
     const value = compactWhitespace(item.value);
 
-    if (!key || key === "extractedText" || key === "documentType" || !value || compactWhitespace(mergedFields[key])) {
+    if (!key || key === "extractedText" || key === "documentType" || !value) {
+      continue;
+    }
+
+    if (!preferAiFields && compactWhitespace(mergedFields[key])) {
       continue;
     }
 
     mergedFields[key] = value;
+    appliedKeys.add(key);
     appliedAiDerivedFields.push({
       field: key,
       value,
@@ -114,11 +147,16 @@ export function mergeProductAiFields(result = {}, ai = {}) {
   for (const [key, value] of Object.entries(aiFields)) {
     const cleanValue = compactWhitespace(value);
 
-    if (key === "extractedText" || key === "documentType" || !cleanValue || compactWhitespace(mergedFields[key])) {
+    if (key === "extractedText" || key === "documentType" || !cleanValue) {
+      continue;
+    }
+
+    if (appliedKeys.has(key) || (!preferAiFields && compactWhitespace(mergedFields[key]))) {
       continue;
     }
 
     mergedFields[key] = cleanValue;
+    appliedKeys.add(key);
     appliedAiDerivedFields.push({
       field: key,
       value: cleanValue,
@@ -155,11 +193,12 @@ export async function refineProductDocumentWithAi({
 
   const existing = JSON.stringify(result.fields ?? {}, null, 2);
   const prompt = [
-    "Extract ShelfCycle product-code fields from this SDS/TDS/product document.",
-    "Use only the supplied document text. Do not invent missing values.",
-    "If you infer a value from nearby document text, include it in aiDerivedFields with a short reason.",
-    "For existing blank values, fill only when the document supports the value.",
-    "Useful fields include code, productFamily, supplier, CAS number, packaging, quantity per package, UN number, packing group, hazard class, proper shipping name, freight class, and SDS/TDS document type.",
+    "Parse this SDS/TDS/product document into ShelfCycle product-intake fields.",
+    productRequirementsPromptBlock(),
+    "Use the document as the primary source. Do not invent missing values.",
+    "When the document supports a field directly or by a practical business inference, include it in fields and also include an aiDerivedFields entry with a short evidence reason.",
+    "If a ShelfCycle required field cannot be found, leave it blank and list it in missingShelfCycleFields.",
+    "Keep shelfCycleReadySummary short, practical, and suitable for Sean to approve before creating or updating ShelfCycle records.",
     `Existing parsed fields:\n${existing}`,
     `Document text:\n${String(text).slice(0, 50000)}`
   ].join("\n\n");
@@ -211,7 +250,13 @@ export async function refineProductDocumentWithAi({
     }
 
     const parsed = JSON.parse(responseText(payload) || "{}");
-    return mergeProductAiFields(result, parsed);
+    const merged = mergeProductAiFields(result, parsed, { preferAiFields: true });
+
+    return {
+      ...merged,
+      missingShelfCycleFields: parsed.missingShelfCycleFields ?? merged.missingShelfCycleFields ?? [],
+      shelfCycleNotes: parsed.shelfCycleNotes ?? merged.shelfCycleNotes ?? []
+    };
   } catch (error) {
     return {
       ...result,
@@ -262,7 +307,12 @@ export async function extractProductDocumentPdfWithAi({
             content: [
               {
                 type: "input_text",
-                text: "Extract readable text and ShelfCycle product-code fields from this SDS/TDS PDF. Use only the document. Mark every field you infer as AI-derived."
+                text: [
+                  "Extract readable text and ShelfCycle product-intake fields from this SDS/TDS PDF.",
+                  productRequirementsPromptBlock(),
+                  "Use only the document. Mark every extracted or inferred ShelfCycle field as AI-derived with a short reason.",
+                  "Return a concise shelfCycleReadySummary and list missing ShelfCycle required fields."
+                ].join("\n\n")
               },
               {
                 type: "input_file",
@@ -301,7 +351,9 @@ export async function extractProductDocumentPdfWithAi({
       text: compactWhitespace(parsed.fields?.extractedText || ""),
       fields: parsed.fields ?? {},
       aiDerivedFields: parsed.aiDerivedFields ?? [],
-      warnings: parsed.warnings ?? []
+      warnings: parsed.warnings ?? [],
+      missingShelfCycleFields: parsed.missingShelfCycleFields ?? [],
+      shelfCycleNotes: parsed.shelfCycleNotes ?? []
     };
   } catch (error) {
     return {

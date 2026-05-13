@@ -908,8 +908,47 @@ test("product intake can create a new ShelfCycle product when required fields ar
     fields: {
       code: "NEW-D",
       productFamily: "New Product",
+      packagingType: "Fixed",
       packaging: "Drum",
-      quantityPerPackage: "500 lb"
+      quantityPerPackage: "500 lb",
+      supplierType: "Variable"
+    },
+    matches: {
+      customer: [],
+      product: [
+        {
+          score: 0.91,
+          candidate: {
+            id: "family-product-123",
+            code: "NEW-T",
+            name: "New Product Tote",
+            family: "New Product"
+          }
+        }
+      ]
+    }
+  }));
+  const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+  const productFamily = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_FAMILY_CREATE_OR_UPDATE);
+
+  assert.equal(product.executable, true);
+  assert.equal(product.displayLabel, "Create product code in ShelfCycle");
+  assert.equal(product.fieldValues.mode, "create");
+  assert.match(product.fieldValues.reuseGuidance, /Existing Product Family matched/);
+  assert.equal(productFamily.executable, false);
+  assert.match(productFamily.warnings.join(" "), /Product family appears to exist/);
+});
+
+test("product intake blocks product-code creation until a new product family is verified", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    fields: {
+      code: "NEW-D",
+      productFamily: "New Unmatched Product",
+      packagingType: "Fixed",
+      packaging: "Drum",
+      quantityPerPackage: "500 lb",
+      supplierType: "Variable"
     },
     matches: {
       customer: [],
@@ -918,7 +957,6 @@ test("product intake can create a new ShelfCycle product when required fields ar
   }));
   const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
 
-  assert.equal(product.executable, true);
-  assert.equal(product.displayLabel, "Create product code in ShelfCycle");
-  assert.equal(product.fieldValues.mode, "create");
+  assert.equal(product.executable, false);
+  assert.match(product.warnings.join(" "), /Verify the Product Family exists/);
 });

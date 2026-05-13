@@ -38,3 +38,41 @@ test("mergeProductAiFields only fills blank product fields and records AI deriva
   ]);
   assert.ok(result.warnings.includes("Verify transport classification."));
 });
+
+test("mergeProductAiFields can prefer ChatGPT product parsing over weak local parsing", () => {
+  const result = mergeProductAiFields(
+    {
+      fields: {
+        productName: "Section 1",
+        productFamily: "Wrong local heading",
+        packagingType: ""
+      },
+      warnings: []
+    },
+    {
+      fields: {
+        productName: "ONGRONAT XP 1127",
+        productFamily: "ONGRONAT XP 1127",
+        packagingType: "Fixed",
+        supplierType: "Variable",
+        shelfCycleReadySummary: "Review ONGRONAT XP 1127 as a product-family match before creating a package code."
+      },
+      aiDerivedFields: [
+        {
+          field: "productFamily",
+          value: "ONGRONAT XP 1127",
+          reason: "Product name appears on the SDS header."
+        }
+      ],
+      warnings: [],
+      missingShelfCycleFields: ["Code", "Packaging", "Quantity per Package"],
+      shelfCycleNotes: ["Product Family is the material identity; package size still needs review."]
+    },
+    { preferAiFields: true }
+  );
+
+  assert.equal(result.fields.productName, "ONGRONAT XP 1127");
+  assert.equal(result.fields.productFamily, "ONGRONAT XP 1127");
+  assert.equal(result.fields.packagingType, "Fixed");
+  assert.ok(result.aiDerivedFields.some((item) => item.field === "productFamily"));
+});

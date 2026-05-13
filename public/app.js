@@ -214,6 +214,10 @@ function formatDraft(result) {
     return result.draftNote.summary;
   }
 
+  if (result.workflow === "new_product") {
+    return formatProductIntakeDraft(result);
+  }
+
   const fields = result.fields ?? {};
   const fieldLines = Object.entries(fields)
     .filter(([, value]) => String(value || "").trim())
@@ -233,6 +237,172 @@ function formatDraft(result) {
   ].filter(Boolean).join("\n\n");
 }
 
+function productDisplayLabel(field = "") {
+  return {
+    shelfCycleReadySummary: "ShelfCycle-ready summary",
+    productName: "Product Name",
+    code: "Product Code",
+    productFamily: "Product Family",
+    productFamilyDescription: "Product Family Description",
+    chemicalName: "Chemical Name",
+    aliases: "Aliases",
+    supplier: "Supplier",
+    casNumber: "CAS Number",
+    packagingType: "Packaging Type",
+    packaging: "Packaging",
+    quantityPerPackage: "Quantity per Package",
+    unitOfMeasure: "Unit of Measure",
+    supplierType: "Supplier Type",
+    unNumber: "UN/NA Number",
+    packingGroup: "Packing Group",
+    hazardClass: "Hazard Class",
+    specialDesignation: "Special Designation",
+    properShippingName: "Proper Shipping Name",
+    signalWord: "GHS Signal Word",
+    hazardSymbols: "Hazard Symbols",
+    nmfcCode: "NMFC Code",
+    freightClass: "Freight Class",
+    pallet: "Pallet",
+    packagesPerPallet: "Packages per Pallet",
+    physicalState: "Physical State",
+    appearance: "Appearance",
+    density: "Density",
+    specificGravity: "Specific Gravity",
+    viscosity: "Viscosity",
+    flashPoint: "Flash Point",
+    boilingPoint: "Boiling Point",
+    storage: "Storage",
+    shelfLife: "Shelf Life",
+    recommendedUse: "Recommended Use",
+    documentDate: "Document Date"
+  }[field] || String(field || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+}
+
+function fieldLine(fields = {}, key = "") {
+  const value = String(fields[key] || "").trim();
+  return value ? `- ${productDisplayLabel(key)}: ${value}` : "";
+}
+
+function formatProductIntakeDraft(result = {}) {
+  const fields = result.fields ?? {};
+  const requirements = result.shelfCycleRequirements ?? {};
+  const missing = requirements.missingRequiredFields ?? [];
+  const sections = [];
+
+  sections.push([
+    "ShelfCycle Product Intake",
+    fields.shelfCycleReadySummary ? `- Summary: ${fields.shelfCycleReadySummary}` : "",
+    `- Document type: ${result.documentType || fields.documentType || "SDS/TDS"}`,
+    `- ShelfCycle status: ${requirements.readyForProductCodeCreate ? "Required fields present for review" : "Missing required fields before product-code creation"}`
+  ].filter(Boolean).join("\n"));
+
+  sections.push([
+    "Product Family (chemical/material identity)",
+    fieldLine(fields, "productFamily"),
+    fieldLine(fields, "chemicalName"),
+    fieldLine(fields, "productFamilyDescription"),
+    fieldLine(fields, "aliases"),
+    fieldLine(fields, "casNumber"),
+    fieldLine(fields, "recommendedUse")
+  ].filter(Boolean).join("\n"));
+
+  sections.push([
+    "Product Code (package/SKU record)",
+    result.matches?.product?.length ? "- Existing family/product match found: reuse family-level identity; only change package-specific fields for the new code." : "",
+    fieldLine(fields, "code"),
+    fieldLine(fields, "productName"),
+    fieldLine(fields, "packagingType"),
+    fieldLine(fields, "packaging"),
+    fieldLine(fields, "quantityPerPackage"),
+    fieldLine(fields, "unitOfMeasure"),
+    fieldLine(fields, "supplierType"),
+    fieldLine(fields, "supplier"),
+    result.proposedActions?.find((action) => action.actionType === "product_create_or_update")?.fieldValues?.reuseGuidance
+      ? `- Reuse guidance: ${result.proposedActions.find((action) => action.actionType === "product_create_or_update").fieldValues.reuseGuidance}`
+      : ""
+  ].filter(Boolean).join("\n"));
+
+  sections.push([
+    "Safety, shipping, and logistics",
+    fieldLine(fields, "unNumber"),
+    fieldLine(fields, "packingGroup"),
+    fieldLine(fields, "hazardClass"),
+    fieldLine(fields, "specialDesignation"),
+    fieldLine(fields, "properShippingName"),
+    fieldLine(fields, "signalWord"),
+    fieldLine(fields, "hazardSymbols"),
+    fieldLine(fields, "nmfcCode"),
+    fieldLine(fields, "freightClass"),
+    fieldLine(fields, "pallet"),
+    fieldLine(fields, "packagesPerPallet")
+  ].filter(Boolean).join("\n"));
+
+  if (missing.length) {
+    sections.push([
+      "Missing before ShelfCycle product-code creation",
+      ...missing.map((item) => `- ${item.label || item.key}: ${item.message || "Required by ShelfCycle."}`)
+    ].join("\n"));
+  }
+
+  if ((result.aiDerivedFields ?? []).length) {
+    sections.push([
+      "AI-derived fields to verify",
+      ...result.aiDerivedFields
+        .filter((item) => item.field && item.value && !["documentType", "extractedText"].includes(item.field))
+        .map((item) => `- ${productDisplayLabel(item.field)}: ${item.value}${item.reason ? ` (${item.reason})` : ""}`)
+    ].join("\n"));
+  }
+
+  if ((result.shelfCycleNotes ?? []).length) {
+    sections.push([
+      "ShelfCycle notes",
+      ...result.shelfCycleNotes.map((item) => `- ${item}`)
+    ].join("\n"));
+  }
+
+  return sections.filter(Boolean).join("\n\n");
+}
+
+function formatWritePlan(result = {}) {
+  if (result.workflow !== "new_product") {
+    return JSON.stringify(result.writePlan, null, 2);
+  }
+
+  const plan = result.writePlan ?? {};
+  const fields = plan.fields ?? result.fields ?? {};
+  const missing = plan.missingRequiredFields ?? result.shelfCycleRequirements?.missingRequiredFields?.map((item) => item.message || item.label) ?? [];
+
+  return [
+    `Destination: ${plan.destination || "Products > New Product Code"}`,
+    `Ready for product-code create: ${plan.readyForProductCodeCreate ? "yes" : "no"}`,
+    missing.length ? `Missing required fields:\n${missing.map((item) => `- ${item}`).join("\n")}` : "Missing required fields: none detected",
+    "",
+    "Fields that will be reviewed:",
+    ...Object.entries(fields)
+      .filter(([, value]) => String(value || "").trim())
+      .map(([key, value]) => `- ${productDisplayLabel(key)}: ${value}`),
+    "",
+    "Document handling:",
+    ...(plan.attachments ?? []).map((item) => `- ${item}`)
+  ].filter((line) => line !== null && line !== undefined).join("\n");
+}
+
+function formatSuggestedCreatesForOutput(result = {}) {
+  const creates = result.suggestedCreates ?? [];
+
+  if (!creates.length) {
+    return "None";
+  }
+
+  return creates
+    .map((item) => {
+      const label = item.name || item.companyName || item.productName || item.code || "Review manually";
+      const type = item.type || "record";
+      return `- ${type}: ${label}`;
+    })
+    .join("\n");
+}
+
 function formatActionWarnings(action = {}) {
   return (action.warnings ?? []).filter(Boolean).join(" ");
 }
@@ -243,7 +413,7 @@ function renderProductActions(result = {}) {
   }
 
   const actions = (result.proposedActions ?? result.reviewAction?.proposedActions ?? [])
-    .filter((action) => ["product_create_or_update", "product_document_followup"].includes(action.actionType));
+    .filter((action) => ["product_family_create_or_update", "product_create_or_update", "product_document_followup"].includes(action.actionType));
 
   if (!actions.length) {
     productActionsEl.innerHTML = `
@@ -442,7 +612,8 @@ async function analyze() {
     text: inputText.value,
     workflow: workflowSelect.value,
     referenceData: state.referenceData,
-    files: state.sourceFiles
+    files: state.sourceFiles,
+    useAi: workflowSelect.value === "new_product"
   };
 
   const response = await fetch("/api/analyze", {
@@ -469,12 +640,12 @@ async function analyze() {
   workflowChip.textContent = `${result.workflow} (${Math.round((result.confidence ?? 0) * 100)}%)`;
   workflowChip.className = "chip active";
   setOutput(signalsEl, (result.signals ?? []).join("\n"));
-  setOutput(writePlanEl, JSON.stringify(result.writePlan, null, 2));
+  setOutput(writePlanEl, formatWritePlan(result));
   setOutput(draftEl, formatDraft(result));
   renderIntelligenceContext(result);
   setOutput(matchesEl, formatMatches(result.matches));
   setOutput(warningsEl, (result.warnings ?? []).join("\n"));
-  setOutput(suggestedCreatesEl, JSON.stringify(result.suggestedCreates ?? [], null, 2));
+  setOutput(suggestedCreatesEl, formatSuggestedCreatesForOutput(result));
   setOutput(followUpDraftEl, formatFollowUpDraft(result.followUpDraft));
   setOutput(roleWorklistsEl, formatRoleWorklists(result.roleWorklists));
   renderProductActions(result);

@@ -11,6 +11,7 @@ import { buildNoteFields } from "./shelfcycle-submit.mjs";
 import { collectNoteMentionCandidates } from "./shelfcycle-mentions.mjs";
 import { normalizeShelfCycleNoteText } from "./shelfcycle-ready-note.mjs";
 import { normalizeContactDocumentTypes } from "./shelfcycle-contact-document-types.mjs";
+import { missingShelfCycleProductFields } from "./shelfcycle-product-requirements.mjs";
 import { resolveCustomerTargets, resolveSupplierTargets } from "./shelfcycle-target-resolver.mjs";
 import {
   preferredExternalParticipant,
@@ -26,6 +27,7 @@ export const SHELFCYCLE_ACTION_TYPES = Object.freeze({
   CONTACT_CREATE: "contact_create",
   CONTACT_UPDATE: "contact_update",
   PRODUCT_CREATE_OR_UPDATE: "product_create_or_update",
+  PRODUCT_FAMILY_CREATE_OR_UPDATE: "product_family_create_or_update",
   PRODUCT_DOCUMENT_FOLLOWUP: "product_document_followup",
   PRICING_RECORD: "pricing_record",
   ORDER_OR_LOGISTICS_NOTE: "order_or_logistics_note",
@@ -296,6 +298,30 @@ function selectedProductTarget(reviewAction = {}, context = {}, productActionId 
   return productTargetFromMatch(firstProductMatch(reviewAction));
 }
 
+function isExactProductMatch(product = null, fields = {}) {
+  if (!product) {
+    return false;
+  }
+
+  const desiredCode = normalizedLookup(fields.code);
+  const desiredName = normalizedLookup(fields.productName);
+  const desiredValues = [desiredCode, desiredName].filter(Boolean);
+  const candidateValues = [
+    product.code,
+    product.sku,
+    product.name,
+    product.productName,
+    product.label
+  ].map(normalizedLookup).filter(Boolean);
+
+  return desiredValues.some((desired) => candidateValues.includes(desired));
+}
+
+function hasUserSelectedProductTarget(reviewAction = {}, context = {}, productActionId = "") {
+  const selected = context.selectedTarget ?? reviewAction.selectedTargets?.[productActionId] ?? null;
+  return selected?.kind === "product" && (selected.id || selected.label);
+}
+
 function productFieldValues(reviewAction = {}, context = {}) {
   const fieldMap = candidateFieldMap(reviewAction);
   const fields = reviewAction.fields ?? {};
@@ -306,9 +332,13 @@ function productFieldValues(reviewAction = {}, context = {}) {
     code: compactWhitespace(context.fields?.code ?? fields.code ?? writeFields.code ?? fieldMap.code ?? fieldMap.product_code ?? ""),
     productName: compactWhitespace(context.fields?.productName ?? fields.productName ?? writeFields.productName ?? fieldMap.product_name ?? ""),
     productFamily: compactWhitespace(context.fields?.productFamily ?? fields.productFamily ?? writeFields.productFamily ?? fieldMap.product_family ?? fieldMap.product ?? fields.productName ?? ""),
+    productFamilyDescription: compactWhitespace(context.fields?.productFamilyDescription ?? fields.productFamilyDescription ?? fieldMap.product_family_description ?? ""),
+    chemicalName: compactWhitespace(context.fields?.chemicalName ?? fields.chemicalName ?? fieldMap.chemical_name ?? ""),
+    aliases: compactWhitespace(context.fields?.aliases ?? fields.aliases ?? fieldMap.aliases ?? ""),
     packagingType: compactWhitespace(context.fields?.packagingType ?? fields.packagingType ?? fieldMap.packaging_type ?? "Fixed"),
     packaging: compactWhitespace(context.fields?.packaging ?? fields.packaging ?? writeFields.packaging ?? fieldMap.packaging ?? ""),
     quantityPerPackage: compactWhitespace(context.fields?.quantityPerPackage ?? fields.quantityPerPackage ?? writeFields.quantityPerPackage ?? fieldMap.quantity_per_package ?? fieldMap.package_qty ?? ""),
+    unitOfMeasure: compactWhitespace(context.fields?.unitOfMeasure ?? fields.unitOfMeasure ?? fieldMap.unit_of_measure ?? ""),
     supplierType: compactWhitespace(context.fields?.supplierType ?? fields.supplierType ?? fieldMap.supplier_type ?? "Variable"),
     supplier: compactWhitespace(context.fields?.supplier ?? fields.supplier ?? writeFields.supplier ?? fieldMap.supplier ?? ""),
     casNumber: compactWhitespace(context.fields?.casNumber ?? fields.casNumber ?? writeFields.casNumber ?? fieldMap.cas ?? fieldMap.cas_number ?? ""),
@@ -319,7 +349,12 @@ function productFieldValues(reviewAction = {}, context = {}) {
     packagesPerPallet: compactWhitespace(context.fields?.packagesPerPallet ?? fields.packagesPerPallet ?? fieldMap.packages_per_pallet ?? ""),
     unNumber: compactWhitespace(context.fields?.unNumber ?? fields.unNumber ?? fieldMap.un_number ?? fieldMap.un_na_number ?? ""),
     packingGroup: compactWhitespace(context.fields?.packingGroup ?? fields.packingGroup ?? fieldMap.packing_group ?? ""),
+    hazardClass: compactWhitespace(context.fields?.hazardClass ?? fields.hazardClass ?? fieldMap.hazard_class ?? ""),
+    specialDesignation: compactWhitespace(context.fields?.specialDesignation ?? fields.specialDesignation ?? fieldMap.special_designation ?? ""),
     properShippingName: compactWhitespace(context.fields?.properShippingName ?? fields.properShippingName ?? fieldMap.proper_shipping_name ?? ""),
+    signalWord: compactWhitespace(context.fields?.signalWord ?? fields.signalWord ?? fieldMap.signal_word ?? fieldMap.ghs_signal_word ?? ""),
+    hazardSymbols: compactWhitespace(context.fields?.hazardSymbols ?? fields.hazardSymbols ?? fieldMap.hazard_symbols ?? ""),
+    shelfCycleReadySummary: compactWhitespace(context.fields?.shelfCycleReadySummary ?? fields.shelfCycleReadySummary ?? fieldMap.shelfcycle_summary ?? fieldMap.shelf_cycle_summary ?? ""),
     documentType: compactWhitespace(context.fields?.documentType ?? reviewAction.documentType ?? fields.documentType ?? fieldMap.document_type ?? ""),
     aiDerivedFields: context.fields?.aiDerivedFields ?? reviewAction.aiDerivedFields ?? []
   };
@@ -981,17 +1016,59 @@ export function collectProposedActions(reviewAction = {}, context = {}) {
   }
 
   if (reviewAction.workflow === "new_product" || hasAiCandidateType(reviewAction, /\b(product|catalog)\b/i)) {
+    const productFields = productFieldValues(reviewAction, context);
+    const productActionId = `${stableBaseId(reviewAction)}-${SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE}`;
+    const existingProduct = firstProductMatch(reviewAction);
+    const rawSelectedProduct = selectedProductTarget(reviewAction, context, productActionId);
+    const selectedProduct = (hasUserSelectedProductTarget(reviewAction, context, productActionId) || isExactProductMatch(existingProduct, productFields))
+      ? rawSelectedProduct
+      : null;
+    const isUpdate = Boolean(selectedProduct?.label);
+    const familyExists = Boolean(
+      isUpdate ||
+      existingProduct?.family ||
+      existingProduct?.productFamily ||
+      (reviewAction.matches?.product ?? reviewAction.matches?.products ?? []).some((item) => {
+        const candidate = item?.candidate ?? item;
+        return compactWhitespace(candidate?.family || candidate?.productFamily) &&
+          normalizedLookup(candidate?.family || candidate?.productFamily) === normalizedLookup(productFields.productFamily);
+      })
+    );
+
+    const familyAction = makeBaseAction(reviewAction, SHELFCYCLE_ACTION_TYPES.PRODUCT_FAMILY_CREATE_OR_UPDATE, "Review product family in ShelfCycle");
+    familyAction.fieldValues = {
+      productFamily: productFields.productFamily,
+      chemicalName: productFields.chemicalName,
+      productFamilyDescription: productFields.productFamilyDescription,
+      aliases: productFields.aliases,
+      casNumber: productFields.casNumber,
+      unNumber: productFields.unNumber,
+      packingGroup: productFields.packingGroup,
+      hazardClass: productFields.hazardClass,
+      specialDesignation: productFields.specialDesignation,
+      properShippingName: productFields.properShippingName,
+      signalWord: productFields.signalWord,
+      hazardSymbols: productFields.hazardSymbols
+    };
+    familyAction.requiredFields = ["fields.productFamily"];
+    familyAction.confidence = productFields.productFamily ? (familyExists ? 0.9 : 0.65) : 0.25;
+    familyAction.warnings = [
+      productFields.productFamily ? "" : "Product family name is required before ShelfCycle product-code creation.",
+      familyExists
+        ? "Product family appears to exist or match current ShelfCycle product data. Select it when creating/updating the product code."
+        : "Product family creation is not automated yet. If this family is new, create or verify it in ShelfCycle before creating the product code."
+    ].filter(Boolean);
+    familyAction.executable = false;
+    proposed.push(familyAction);
+
     const productAction = makeBaseAction(reviewAction, SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE, "Create product code in ShelfCycle");
     const productWarnings = [];
-    const existingProduct = firstProductMatch(reviewAction);
-    const selectedProduct = selectedProductTarget(reviewAction, context, productAction.id);
-    const isUpdate = Boolean(selectedProduct?.label);
 
     productAction.requiredFields = isUpdate
       ? ["selectedTarget.label"]
-      : ["fields.code", "fields.productFamily", "fields.packaging", "fields.quantityPerPackage"];
+      : ["fields.code", "fields.productFamily", "fields.packagingType", "fields.packaging", "fields.quantityPerPackage", "fields.supplierType"];
     productAction.fieldValues = {
-      ...productFieldValues(reviewAction, context),
+      ...productFields,
       mode: isUpdate ? "update" : "create"
     };
     productAction.selectedTarget = selectedProduct;
@@ -1012,15 +1089,15 @@ export function collectProposedActions(reviewAction = {}, context = {}) {
         matchReasons: ["product already appears to exist in ShelfCycle; update instead of creating a duplicate"]
       }];
     } else {
-      for (const [key, message] of [
-        ["code", "Product creation requires a product code."],
-        ["productFamily", "Product creation requires a product family."],
-        ["packaging", "Product creation requires packaging."],
-        ["quantityPerPackage", "Product creation requires quantity per package."]
-      ]) {
-        if (!productAction.fieldValues[key]) {
-          productWarnings.push(message);
-        }
+      productWarnings.push(
+        ...missingShelfCycleProductFields(productAction.fieldValues)
+          .map((field) => field.message || `${field.label} is required by ShelfCycle.`)
+      );
+
+      if (productAction.fieldValues.productFamily && !familyExists) {
+        productWarnings.push("Verify the Product Family exists in ShelfCycle before approving product-code creation.");
+      } else if (productAction.fieldValues.productFamily && familyExists) {
+        productAction.fieldValues.reuseGuidance = "Existing Product Family matched. Reuse family-level CAS, hazmat, GHS, and shipping identity; only change package/product-code fields for this package size.";
       }
     }
 

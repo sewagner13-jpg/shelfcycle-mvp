@@ -15,9 +15,14 @@ import { collectExecutableActions, collectProposedActions, findProposedAction, S
 import { executeApprovedShelfCycleAction } from "../lib/shelfcycle-action-executor.mjs";
 import { fetchGmailAttachmentData, trashGmailThread } from "../lib/gmail-client.mjs";
 import { extractPdfText } from "../lib/pdf-text-extractor.mjs";
-import { extractProductDocumentPdfWithAi, refineProductDocumentWithAi } from "../lib/product-document-ai.mjs";
+import {
+  extractProductDocumentPdfWithAi,
+  refineProductDocumentWithAi,
+  resolveProductDocumentAiConfig
+} from "../lib/product-document-ai.mjs";
 import { customerRequirementsForFields } from "../lib/shelfcycle-customer-requirements.mjs";
 import { supplierRequirementsForFields } from "../lib/shelfcycle-supplier-requirements.mjs";
+import { shelfCycleProductRequirementsForFields } from "../lib/shelfcycle-product-requirements.mjs";
 import { buildShelfCycleReadyNote } from "../lib/shelfcycle-ready-note.mjs";
 import { getNoteSubmissionTarget } from "../lib/shelfcycle-submit.mjs";
 import {
@@ -1122,31 +1127,66 @@ function base64FromPayload(payload = {}) {
 
 function productFieldLabel(field = "") {
   return {
+    shelfCycleReadySummary: "ShelfCycle Summary",
     productName: "Product Name",
     productFamily: "Product Family",
+    productFamilyDescription: "Product Family Description",
+    chemicalName: "Chemical Name",
+    aliases: "Aliases",
+    packagingType: "Packaging Type",
+    supplierType: "Supplier Type",
+    supplier: "Supplier",
     casNumber: "CAS",
+    packaging: "Packaging",
     quantityPerPackage: "Quantity per package",
+    unitOfMeasure: "Unit of Measure",
     nmfcCode: "NMFC",
     unNumber: "UN Number",
     packingGroup: "Packing Group",
+    hazardClass: "Hazard Class",
+    specialDesignation: "Special Designation",
     properShippingName: "Proper Shipping Name",
+    signalWord: "GHS Signal Word",
+    hazardSymbols: "Hazard Symbols",
     freightClass: "Freight Class"
   }[field] || String(field || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
 }
 
-function productAiLines(aiDerivedFields = []) {
-  return aiDerivedFields
-    .map((item) => {
-      const field = String(item.field || "").trim();
-      const value = String(item.value || "").trim();
+function productAiLines(aiDerivedFields = [], fields = {}) {
+  const lines = [];
+  const seen = new Set();
+  const skipped = new Set(["extractedText", "documentType"]);
 
-      if (!field || field === "extractedText" || field === "documentType" || !value) {
-        return "";
-      }
+  for (const item of aiDerivedFields) {
+    const field = String(item.field || "").trim();
+    const value = String(item.value || "").trim();
 
-      return `${productFieldLabel(field)}: ${value}`;
-    })
-    .filter(Boolean);
+    if (!field || skipped.has(field) || !value) {
+      continue;
+    }
+
+    const key = `${field}:${value}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      lines.push(`${productFieldLabel(field)}: ${value}`);
+    }
+  }
+
+  for (const [field, value] of Object.entries(fields ?? {})) {
+    const cleanValue = String(value || "").trim();
+
+    if (!field || skipped.has(field) || !cleanValue) {
+      continue;
+    }
+
+    const key = `${field}:${cleanValue}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      lines.push(`${productFieldLabel(field)}: ${cleanValue}`);
+    }
+  }
+
+  return lines;
 }
 
 function uniqueStrings(values = []) {
@@ -1176,11 +1216,19 @@ function withUpdatedProductWritePlan(result = {}) {
   }
 
   const fields = result.fields ?? {};
+  const normalizedProductFields = {
+    ...fields,
+    packagingType: fields.packagingType || "Fixed",
+    supplierType: fields.supplierType || "Variable"
+  };
   const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
   const documentType = result.documentType ?? fields.documentType ?? "SDS";
+  const shelfCycleRequirements = shelfCycleProductRequirementsForFields(normalizedProductFields);
 
   return {
     ...result,
+    fields: normalizedProductFields,
+    shelfCycleRequirements,
     writePlan: {
       ...(result.writePlan ?? {}),
       destination: matchedProduct?.code || matchedProduct?.name
@@ -1188,25 +1236,38 @@ function withUpdatedProductWritePlan(result = {}) {
         : "Products > New Product Code",
       fields: {
         ...(result.writePlan?.fields ?? {}),
-        productName: fields.productName ?? "",
-        code: fields.code ?? "",
-        productFamily: fields.productFamily ?? "",
-        supplier: fields.supplier ?? "",
-        casNumber: fields.casNumber ?? "",
-        packaging: fields.packaging ?? "",
-        quantityPerPackage: fields.quantityPerPackage ?? "",
-        unNumber: fields.unNumber ?? "",
-        packingGroup: fields.packingGroup ?? "",
-        properShippingName: fields.properShippingName ?? "",
-        freightClass: fields.freightClass ?? "",
-        nmfcCode: fields.nmfcCode ?? ""
+        productName: normalizedProductFields.productName ?? "",
+        code: normalizedProductFields.code ?? "",
+        productFamily: normalizedProductFields.productFamily ?? "",
+        supplier: normalizedProductFields.supplier ?? "",
+        casNumber: normalizedProductFields.casNumber ?? "",
+        packagingType: normalizedProductFields.packagingType ?? "",
+        packaging: normalizedProductFields.packaging ?? "",
+        quantityPerPackage: normalizedProductFields.quantityPerPackage ?? "",
+        supplierType: normalizedProductFields.supplierType ?? "",
+        unNumber: normalizedProductFields.unNumber ?? "",
+        packingGroup: normalizedProductFields.packingGroup ?? "",
+        properShippingName: normalizedProductFields.properShippingName ?? "",
+        freightClass: normalizedProductFields.freightClass ?? "",
+        nmfcCode: normalizedProductFields.nmfcCode ?? "",
+        hazardClass: normalizedProductFields.hazardClass ?? "",
+        specialDesignation: normalizedProductFields.specialDesignation ?? "",
+        signalWord: normalizedProductFields.signalWord ?? "",
+        hazardSymbols: normalizedProductFields.hazardSymbols ?? "",
+        shelfCycleReadySummary: normalizedProductFields.shelfCycleReadySummary ?? ""
       },
+      missingRequiredFields: shelfCycleRequirements.missingRequiredFields.map((field) => field.message || field.label),
+      readyForProductCodeCreate: shelfCycleRequirements.readyForProductCodeCreate,
+      requirementSource: shelfCycleRequirements.source,
       aiDerivedFields: result.aiDerivedFields ?? [],
       attachments: [
         documentType === "SDS"
           ? "Attach SDS in product code safety attributes"
           : "Upload TDS in the product Documents drawer",
-        matchedProduct ? "Existing product matched. Prefer update/document upload over duplicate create." : ""
+        matchedProduct ? "Existing product matched. Prefer update/document upload over duplicate create." : "",
+        matchedProduct?.family || matchedProduct?.productFamily
+          ? "Existing Product Family matched. Reuse family-level CAS, hazmat, GHS, and shipping identity; only vary package size, product code, supplier/package logistics, and documents that differ."
+          : ""
       ].filter(Boolean)
     }
   };
@@ -1508,6 +1569,8 @@ function createServer() {
           text: "",
           fields: {},
           aiDerivedFields: [],
+          missingShelfCycleFields: [],
+          shelfCycleNotes: [],
           warnings: []
         };
 
@@ -1539,6 +1602,8 @@ function createServer() {
           method,
           fields: aiResult.fields ?? {},
           aiDerivedFields: aiResult.aiDerivedFields ?? [],
+          missingShelfCycleFields: aiResult.missingShelfCycleFields ?? [],
+          shelfCycleNotes: aiResult.shelfCycleNotes ?? [],
           warnings: combinedWarnings
         });
         return;
@@ -1575,16 +1640,22 @@ function createServer() {
           });
 
           if (result.workflow === "new_product") {
-            const missingCoreFields = missingProductCoreFields(result.fields ?? {});
-            const shouldRefineWithAi = payload.useAi === true || missingCoreFields.length > 0;
-            const refinedResult = shouldRefineWithAi
+            const openAiConfig = await loadLocalOpenAiConfig();
+            const productAiConfig = resolveProductDocumentAiConfig(openAiConfig);
+            const refinedResult = productAiConfig.enabled
               ? await refineProductDocumentWithAi({
                 text: inputBody,
                 result,
-                config: await loadLocalOpenAiConfig()
+                config: openAiConfig
               })
-              : result;
-            const aiLines = productAiLines(refinedResult.aiDerivedFields ?? []);
+              : {
+                ...result,
+                warnings: uniqueStrings([
+                  ...(result.warnings ?? []),
+                  "OpenAI product-document parsing is not configured. Only basic local text parsing ran, so review all ShelfCycle product fields manually."
+                ])
+              };
+            const aiLines = productAiLines(refinedResult.aiDerivedFields ?? [], refinedResult.fields ?? {});
 
             if (aiLines.length) {
               const rerun = analyzeInput({
@@ -1600,6 +1671,8 @@ function createServer() {
                   ...(refinedResult.fields ?? {})
                 },
                 aiDerivedFields: refinedResult.aiDerivedFields ?? [],
+                missingShelfCycleFields: refinedResult.missingShelfCycleFields ?? [],
+                shelfCycleNotes: refinedResult.shelfCycleNotes ?? [],
                 warnings: uniqueStrings([
                   ...(rerun.warnings ?? []),
                   ...(refinedResult.warnings ?? [])

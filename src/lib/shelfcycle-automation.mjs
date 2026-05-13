@@ -980,6 +980,12 @@ async function selectSearchOptions(root, { label, placeholder, values = [] } = {
   return selectedCount;
 }
 
+function splitOptionValues(value = "") {
+  return [...new Set((Array.isArray(value) ? value : String(value || "").split(/[,;\n|]+/))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean))];
+}
+
 async function closeOpenDropdowns(page) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await page.keyboard.press("Escape").catch(() => null);
@@ -1810,7 +1816,11 @@ async function fillProductCodeDialogFields(dialog, fields = {}) {
   await fillFieldByLabel(dialog, /packages per pallet/i, fields.packagesPerPallet);
   await selectSearchOption(dialog, { label: /un\/na number/i, placeholder: "e.g., UN1993", value: fields.unNumber });
   await selectSearchOption(dialog, { label: /packing group/i, placeholder: "Select packing group", value: fields.packingGroup });
+  await selectSearchOptions(dialog, { label: /hazard class/i, placeholder: "Select one or more hazard classes", values: splitOptionValues(fields.hazardClass) });
+  await selectSearchOptions(dialog, { label: /special designation/i, placeholder: "ie: Marine Pollutant, Inhalation Hazard", values: splitOptionValues(fields.specialDesignation) });
   await fillFieldByLabel(dialog, /proper shipping name/i, fields.properShippingName);
+  await selectSearchOption(dialog, { label: /ghs signal word/i, placeholder: "WARNING, DANGER, etc", value: fields.signalWord });
+  await selectSearchOptions(dialog, { label: /hazard symbols/i, placeholder: "Select Hazard Symbols", values: splitOptionValues(fields.hazardSymbols) });
 }
 
 export async function submitShelfCycleProductDocument(submission = {}) {

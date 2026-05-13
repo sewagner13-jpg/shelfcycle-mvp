@@ -26,7 +26,7 @@
         </nav>
         <div class="sidebar-note">
           <span class="status-dot"></span>
-          Load SDS/TDS PDFs or text files. Scanned PDFs use OpenAI extraction when configured.
+          Load SDS/TDS PDFs or text files. ChatGPT parses the product fields before approval.
         </div>
       </aside>
 
@@ -61,9 +61,9 @@
                 </div>
               </div>
               <div class="actions">
-                <button class="ghost" disabled title="Planned action - not wired yet">Create Product</button>
-                <button class="ghost" disabled title="Planned action - not wired yet">Upload File</button>
-                <button class="ghost" disabled title="Planned action - not wired yet">Request Approval</button>
+                <button class="ghost" disabled title="Use Analyze Product Document first">Create Product</button>
+                <button class="ghost" disabled title="Use Analyze Product Document first">Upload File</button>
+                <button class="ghost" disabled title="Use Analyze Product Document first">Request Approval</button>
               </div>
             </div>
 
@@ -87,7 +87,7 @@
 
                 <label for="source-files">Load SDS/TDS source</label>
                 <input id="source-files" type="file" multiple accept=".pdf,application/pdf,.txt,.md,.csv,.tsv,.sds,.tds,text/*" />
-                <p id="source-file-status" class="form-help">PDFs are extracted locally first; AI is used only when the document text or missing fields need help.</p>
+                <p id="source-file-status" class="form-help">PDFs are text-extracted first, then ChatGPT parses the ShelfCycle product-family and product-code fields when you analyze.</p>
 
                 <label for="input-text">SDS/TDS or product text</label>
                 <textarea

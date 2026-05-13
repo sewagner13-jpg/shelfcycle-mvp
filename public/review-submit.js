@@ -788,6 +788,21 @@ function genericFieldsHtml(fields = {}, labels = []) {
     .join("");
 }
 
+function warningsHtml(warnings = []) {
+  const items = (warnings ?? []).filter(Boolean);
+
+  if (!items.length) {
+    return "";
+  }
+
+  return `
+    <div class="shelfcycle-warning-box">
+      <strong>Review required</strong>
+      <ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+    </div>
+  `;
+}
+
 const CUSTOMER_REQUIREMENT_LABELS = {
   name: "Name",
   email: "Email",
@@ -1047,6 +1062,25 @@ function actionPreviewCardHtml(proposedAction = null) {
     `;
   }
 
+  if (proposedAction.actionType === "product_family_create_or_update") {
+    return `
+      <article class="shelfcycle-form-card shelfcycle-record-preview">
+        <div class="shelfcycle-form-header">
+          <div>
+            <p class="section-kicker">ShelfCycle Product Family</p>
+            <h3>Product Family Preview</h3>
+          </div>
+          <span class="status-pill status-review">Review family before product code</span>
+        </div>
+        <p class="muted">Product Family is the chemical/material grouping used by ShelfCycle. Product-code automation can safely select an existing family, but new family creation still requires manual verification.</p>
+        <div class="shelfcycle-field-grid">
+          ${genericFieldsHtml(fields, ["productFamily", "chemicalName", "productFamilyDescription", "aliases", "casNumber", "unNumber", "packingGroup", "hazardClass", "specialDesignation", "properShippingName", "signalWord", "hazardSymbols"])}
+        </div>
+        ${warningsHtml(proposedAction.warnings)}
+      </article>
+    `;
+  }
+
   if (proposedAction.actionType === "product_create_or_update") {
     return `
       <article class="shelfcycle-form-card shelfcycle-record-preview">
@@ -1058,7 +1092,7 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs fields"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${genericFieldsHtml(fields, ["code", "productFamily", "packagingType", "packaging", "quantityPerPackage", "supplierType", "supplier", "casNumber", "sdsPath", "nmfcCode", "freightClass", "unNumber", "packingGroup", "properShippingName"])}
+          ${genericFieldsHtml(fields, ["code", "productName", "productFamily", "packagingType", "packaging", "quantityPerPackage", "unitOfMeasure", "supplierType", "supplier", "casNumber", "sdsPath", "nmfcCode", "freightClass", "pallet", "packagesPerPallet", "unNumber", "packingGroup", "hazardClass", "specialDesignation", "properShippingName", "signalWord", "hazardSymbols", "reuseGuidance"])}
         </div>
         ${duplicateCandidatesHtml(proposedAction)}
       </article>

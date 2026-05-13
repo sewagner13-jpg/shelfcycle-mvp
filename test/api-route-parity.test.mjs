@@ -31,3 +31,14 @@ test("SDS/TDS PDF extraction exists in both local and hosted API surfaces", asyn
   assert.match(serverSource, new RegExp(`url\\.pathname === ["'\`]${route.replaceAll("/", "\\/")}["'\`]`));
   assert.equal(hostedPaths.has(route), true);
 });
+
+test("SDS/TDS analyze exists in both local and hosted API surfaces", async () => {
+  const serverSource = await readFile(path.join(projectRoot, "src", "server", "server.mjs"), "utf8");
+  const appSource = await readFile(path.join(projectRoot, "public", "app.js"), "utf8");
+  const hostedPaths = await netlifyFunctionPaths();
+  const route = "/api/analyze";
+
+  assert.match(appSource, new RegExp(route.replaceAll("/", "\\/")));
+  assert.match(serverSource, new RegExp(`url\\.pathname === ["'\`]${route.replaceAll("/", "\\/")}["'\`]`));
+  assert.equal(hostedPaths.has(route), true);
+});
