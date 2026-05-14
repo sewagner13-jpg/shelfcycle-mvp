@@ -39,6 +39,13 @@ function makeMessage({
   };
 }
 
+function decodedChatGptPromptFromBrief(brief = "") {
+  const match = brief.match(/href="https:\/\/chatgpt\.com\/\?q=([^"]+)"/);
+
+  assert.ok(match, "Expected a ChatGPT decision link in the brief.");
+  return decodeURIComponent(match[1].replace(/&amp;/g, "&"));
+}
+
 test("createKnowledgeBundle builds lookup maps from reference data", () => {
   const bundle = createKnowledgeBundle({
     referenceData: {
@@ -480,6 +487,23 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
       lastTimestamp: Date.UTC(2026, 4, 2, 16, 0, 0),
       subject: "Re: G301 pricing",
       externalParticipants: [{ name: "Courtney Quinn", email: "cquinn@suncoatings.example", domain: "suncoatings.example" }],
+      events: [
+        {
+          from: { name: "Courtney Quinn", email: "cquinn@suncoatings.example" },
+          timestamp: Date.UTC(2026, 4, 1, 14, 0, 0),
+          snippet: "Initial request: Sun Coatings asked for G301 pricing, SDS, and sample timing."
+        },
+        {
+          from: { name: "Sean Wagner", email: "sean@clear-edge.net" },
+          timestamp: Date.UTC(2026, 4, 1, 15, 0, 0),
+          snippet: "Sean replied that he would check pricing and documents."
+        },
+        {
+          from: { name: "Courtney Quinn", email: "cquinn@suncoatings.example" },
+          timestamp: Date.UTC(2026, 4, 2, 16, 0, 0),
+          snippet: "Follow-up: Courtney still needs the quote and current SDS before placing the order."
+        }
+      ],
       reviewUrl: "https://clearedge-daily-brief.netlify.app/review-action.html?id=abc&token=def",
       workspaceArtifacts: {
         attachments: [{ filename: "G301-SDS.pdf", mimeType: "application/pdf", messageId: "m1", attachmentId: "att1" }],
@@ -529,6 +553,18 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
   assert.ok(!brief.includes("Review: https://"));
   assert.ok(!brief.includes("Decide in ChatGPT: https://"));
   assert.ok(brief.includes("ShelfCycle Follow-Through"));
+
+  const chatGptPrompt = decodedChatGptPromptFromBrief(brief);
+
+  assert.ok(chatGptPrompt.includes("Do not base the recommendation only on the most recent email."));
+  assert.ok(chatGptPrompt.includes("Entire email chain summary:"));
+  assert.ok(chatGptPrompt.includes("Message timeline from the chain:"));
+  assert.ok(chatGptPrompt.includes("Initial request: Sun Coatings asked for G301 pricing"));
+  assert.ok(chatGptPrompt.includes("Follow-up: Courtney still needs the quote"));
+  assert.ok(chatGptPrompt.includes("PDFs and documents mentioned or attached:"));
+  assert.ok(chatGptPrompt.includes("G301-SDS.pdf (PDF)"));
+  assert.ok(chatGptPrompt.includes("Possible next-step options to consider:"));
+  assert.ok(chatGptPrompt.includes("what may need to be entered into ShelfCycle after approval"));
 });
 
 test("buildDailyBrief suppresses bogus ShelfCycle follow-through for solicitations and ops vendors", () => {

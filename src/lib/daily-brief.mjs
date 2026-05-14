@@ -172,6 +172,12 @@ function isMeaningfulAttachment(filename = "", mimeType = "") {
   return false;
 }
 
+function isPdfDocument(item = {}) {
+  const name = String(item.filename || item.name || "").toLowerCase();
+  const type = String(item.mimeType || "").toLowerCase();
+  return name.endsWith(".pdf") || type === "application/pdf";
+}
+
 function truncateInsight(text = "", maxLength = 92) {
   const normalized = String(text).trim();
 
@@ -214,6 +220,87 @@ function messagesThreadUrl(item = {}) {
   return `sms:${digits}`;
 }
 
+function truncatePrompt(text = "", maxLength = 5600) {
+  const normalized = String(text || "").trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 120).trim()}\n\n[Prompt trimmed to fit the ChatGPT URL. Open Gmail or the Review Packet for the complete source thread.]`;
+}
+
+function chatGptDocumentContext(item = {}) {
+  const attachments = (item.workspaceArtifacts?.attachments ?? [])
+    .filter((attachment) => isMeaningfulAttachment(attachment.filename, attachment.mimeType))
+    .map((attachment) => ({
+      name: attachment.filename || attachment.name || "Unnamed attachment",
+      pdf: isPdfDocument(attachment)
+    }));
+  const driveFiles = (item.workspaceArtifacts?.driveFiles ?? [])
+    .map((file) => ({
+      name: file.name || file.id || "Google Drive file",
+      pdf: isPdfDocument(file),
+      link: file.webViewLink || ""
+    }));
+  const docs = [...attachments, ...driveFiles];
+
+  if (!docs.length) {
+    return "No meaningful PDF/document attachments were detected.";
+  }
+
+  return docs
+    .slice(0, 8)
+    .map((doc) => `- ${doc.name}${doc.pdf ? " (PDF)" : ""}${doc.link ? ` - ${doc.link}` : ""}`)
+    .join("\n");
+}
+
+function chatGptTimeline(item = {}) {
+  const events = item.events ?? [];
+
+  if (!events.length) {
+    return "- No message timeline was available in the brief data. Use the summary and Gmail link.";
+  }
+
+  const selectedEvents = events.length <= 12
+    ? events
+    : [...events.slice(0, 3), ...events.slice(-9)];
+  const omitted = events.length - selectedEvents.length;
+
+  return [
+    omitted > 0 ? `- Thread has ${events.length} messages. ${omitted} middle message(s) omitted from this URL prompt; use Gmail/Review Packet for exact source.` : "",
+    ...selectedEvents.map((event, index) => {
+      const sender = event.from?.name || event.from?.email || "Unknown sender";
+      const direction = event.from?.email && /@clear-edge\.net$/i.test(event.from.email) ? "ClearEdge" : "External";
+      const timestamp = event.timestamp ? new Date(event.timestamp).toISOString() : "unknown time";
+      const snippet = truncateInsight(event.snippet || event.bodyText || event.joinedText || "", 360);
+      return `- ${index + 1}. ${timestamp} | ${direction} | ${sender}: ${snippet || "No text snippet available."}`;
+    })
+  ].filter(Boolean).join("\n");
+}
+
+function chatGptShelfCycleOptions(item = {}, nextStep = "") {
+  const proposedActions = [
+    ...(item.proposedActions ?? []),
+    ...(item.reviewAction?.proposedActions ?? [])
+  ];
+  const actionLabels = proposedActions
+    .map((action) => `${action.displayLabel || action.actionType || "ShelfCycle action"} (${action.executable ? "executable after approval" : "preview/review only"})`)
+    .filter(Boolean)
+    .slice(0, 8);
+  const baselineOptions = [
+    nextStep ? `Recommended next step from the brief: ${nextStep}` : "",
+    "Decide whether Sean needs to reply, wait, dismiss, or delegate.",
+    "Decide whether a clean ShelfCycle note should be added after approval.",
+    "Check if a customer, supplier, contact, product, pricing, document, sample, order, or logistics follow-up should be created or updated.",
+    hasPdfDocuments(item) ? "Review the attached PDF(s) before deciding on ShelfCycle document/product follow-through." : ""
+  ].filter(Boolean);
+
+  return [...baselineOptions, ...actionLabels.map((label) => `ShelfCycle candidate: ${label}`)]
+    .map((line) => `- ${line}`)
+    .join("\n");
+}
+
 function chatGptUrlForItem(item = {}, nextStep = "") {
   if (!nextStep) {
     return "";
@@ -221,23 +308,51 @@ function chatGptUrlForItem(item = {}, nextStep = "") {
 
   const participant = firstExternalParticipant(item);
   const shelfCycleCandidate = item.briefAi?.shelfCycleCandidate;
+  const bullets = summaryBullets(item);
+  const gmailUrl = gmailThreadUrl(item);
+  const reviewUrl = item.reviewUrl || "";
+  const openPdfsUrl = openPdfDocumentsUrl(item);
   const prompt = [
-    "Help me decide the best real next step for this ClearEdge Solutions thread.",
+    "Help me decide the best real next step for this full ClearEdge Solutions email thread.",
     "Think like Sean Wagner, president of ClearEdge: sales, procurement, pricing, customer/supplier relationships, and ShelfCycle data quality all matter.",
+    "Do not base the recommendation only on the most recent email. Use the entire thread summary, timeline, attachments, and ShelfCycle status below.",
+    "Return a concise decision memo with: 1) what happened, 2) what matters, 3) recommended next action, 4) what may need to be entered into ShelfCycle after approval, and 5) any open questions.",
+    "",
+    "Thread identity:",
     `Subject: ${item.subject || "No subject"}`,
     `Contact: ${participant?.name || participant?.email || "Unknown"}`,
-    `Relationship: ${item.relationship?.relationship || "unknown"}`,
+    `Company/domain: ${companyLabel(item)}`,
+    `Relationship: ${relationshipLabel(item) || "unknown"}`,
     `Silo: ${item.silo?.name || "unknown"}`,
-    item.briefAi?.why ? `Why it matters: ${item.briefAi.why}` : "",
-    `Suggested next step: ${nextStep}`,
+    `State: ${statusLabel(item)}`,
+    `ShelfCycle status: ${shelfCycleRelationshipStatus(item)}`,
+    "",
+    "Entire email chain summary:",
+    ...bullets.map((bullet) => `- ${bullet}`),
+    "",
+    "Message timeline from the chain:",
+    chatGptTimeline(item),
+    "",
+    "PDFs and documents mentioned or attached:",
+    chatGptDocumentContext(item),
+    "",
+    "Possible next-step options to consider:",
+    chatGptShelfCycleOptions(item, nextStep),
+    "",
+    item.briefAi?.why ? `Why it matters from AI brief: ${item.briefAi.why}` : "",
     shelfCycleCandidate?.shouldConsider
       ? `ShelfCycle candidate to review: ${shelfCycleCandidate.recordType || "record"} - ${shelfCycleCandidate.title || ""} - ${shelfCycleCandidate.summary || ""}`
       : "",
-    item.reviewUrl ? `Review packet: ${item.reviewUrl}` : "",
+    "",
+    "Useful links:",
+    gmailUrl ? `Gmail thread: ${gmailUrl}` : "",
+    reviewUrl ? `Review packet: ${reviewUrl}` : "",
+    openPdfsUrl ? `Open PDFs locally: ${openPdfsUrl}` : "",
+    "",
     "Keep the recommendation practical, approval-first, and avoid creating ShelfCycle records unless I explicitly decide to."
   ].filter(Boolean).join("\n");
 
-  return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+  return `https://chatgpt.com/?q=${encodeURIComponent(truncatePrompt(prompt))}`;
 }
 
 function intelligenceSuffix(item = {}) {
