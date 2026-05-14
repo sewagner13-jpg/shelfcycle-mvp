@@ -20,6 +20,12 @@ import {
   refineProductDocumentWithAi,
   resolveProductDocumentAiConfig
 } from "../lib/product-document-ai.mjs";
+import {
+  hasUsefulProductDocumentFields,
+  mergeProductDocumentExtractionIntoResult,
+  productDocumentTextQuality,
+  shouldRunProductDocumentPdfAi
+} from "../lib/product-document-source.mjs";
 import { customerRequirementsForFields } from "../lib/shelfcycle-customer-requirements.mjs";
 import { supplierRequirementsForFields } from "../lib/shelfcycle-supplier-requirements.mjs";
 import { shelfCycleProductRequirementsForFields } from "../lib/shelfcycle-product-requirements.mjs";
@@ -1655,6 +1661,11 @@ function createServer() {
           warnings.push(`Local PDF text extraction failed: ${error instanceof Error ? error.message : String(error)}`);
         }
 
+        const textQuality = productDocumentTextQuality(text);
+        const forceAi = payload.forceAi !== false && shouldRunProductDocumentPdfAi({
+          text,
+          forceAi: payload.forceAi === true
+        });
         let aiResult = {
           ok: false,
           text: "",
@@ -1665,7 +1676,7 @@ function createServer() {
           warnings: []
         };
 
-        if (!text || payload.forceAi === true) {
+        if (forceAi) {
           aiResult = await extractProductDocumentPdfWithAi({
             fileName,
             mimeType,
@@ -1676,20 +1687,27 @@ function createServer() {
           if (aiResult.text) {
             text = aiResult.text;
             method = "openai_pdf";
+          } else if (hasUsefulProductDocumentFields(aiResult.fields)) {
+            method = "openai_pdf_fields";
           }
         }
 
+        const finalQuality = productDocumentTextQuality(text);
+        const usefulFieldsFound = hasUsefulProductDocumentFields(aiResult.fields);
+        const responseText = finalQuality.readable ? text : "";
+
         const combinedWarnings = [
           ...warnings,
+          textQuality.readable ? "" : textQuality.reason,
           ...(aiResult.warnings ?? []),
-          text ? "" : "No readable PDF text was found. If this is a scanned PDF, confirm OpenAI vision/document extraction is configured."
+          responseText || usefulFieldsFound ? "" : "No readable PDF text or structured ShelfCycle fields were found. If this is a scanned PDF, confirm OpenAI vision/document extraction is configured."
         ].filter(Boolean);
 
-        json(response, text ? 200 : 422, {
-          ok: Boolean(text),
+        json(response, responseText || usefulFieldsFound ? 200 : 422, {
+          ok: Boolean(responseText || usefulFieldsFound),
           fileName,
           mimeType,
-          text,
+          text: responseText,
           method,
           fields: aiResult.fields ?? {},
           aiDerivedFields: aiResult.aiDerivedFields ?? [],
@@ -1733,16 +1751,20 @@ function createServer() {
           if (result.workflow === "new_product") {
             const openAiConfig = await loadLocalOpenAiConfig();
             const productAiConfig = resolveProductDocumentAiConfig(openAiConfig);
+            const productDocument = payload.productDocument ?? {};
+            const baseProductResult = hasUsefulProductDocumentFields(productDocument.fields)
+              ? mergeProductDocumentExtractionIntoResult(result, productDocument)
+              : result;
             const refinedResult = productAiConfig.enabled
               ? await refineProductDocumentWithAi({
                 text: inputBody,
-                result,
+                result: baseProductResult,
                 config: openAiConfig
               })
               : {
-                ...result,
+                ...baseProductResult,
                 warnings: uniqueStrings([
-                  ...(result.warnings ?? []),
+                  ...(baseProductResult.warnings ?? []),
                   "OpenAI product-document parsing is not configured. Only basic local text parsing ran, so review all ShelfCycle product fields manually."
                 ])
               };

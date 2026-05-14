@@ -4,6 +4,10 @@ import {
   refineProductDocumentWithAi,
   resolveProductDocumentAiConfig
 } from "../../src/lib/product-document-ai.mjs";
+import {
+  hasUsefulProductDocumentFields,
+  mergeProductDocumentExtractionIntoResult
+} from "../../src/lib/product-document-source.mjs";
 import { shelfCycleProductRequirementsForFields } from "../../src/lib/shelfcycle-product-requirements.mjs";
 import { getEnv } from "./_shared/env.mjs";
 import { loadBriefSettings, loadKnowledgeBundle, saveReviewAction } from "./_shared/knowledge-store.mjs";
@@ -222,16 +226,20 @@ async function hostedAnalyzeProduct(payload = {}, referenceData = {}) {
   const settings = await loadBriefSettings().catch(() => ({})) ?? {};
   const openAiConfig = openAiConfigFromSettings(settings);
   const productAiConfig = resolveProductDocumentAiConfig(openAiConfig);
+  const productDocument = payload.productDocument ?? {};
+  const baseProductResult = hasUsefulProductDocumentFields(productDocument.fields)
+    ? mergeProductDocumentExtractionIntoResult(result, productDocument)
+    : result;
   const refinedResult = productAiConfig.enabled
     ? await refineProductDocumentWithAi({
       text: inputBody,
-      result,
+      result: baseProductResult,
       config: openAiConfig
     })
     : {
-      ...result,
+      ...baseProductResult,
       warnings: uniqueStrings([
-        ...(result.warnings ?? []),
+        ...(baseProductResult.warnings ?? []),
         "OpenAI product-document parsing is not configured. Only basic hosted text parsing ran."
       ])
     };

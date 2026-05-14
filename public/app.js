@@ -41,6 +41,8 @@ const trashHiddenNoiseButton = document.querySelector("#trash-hidden-noise");
 
 const workflowChip = document.querySelector("#workflow-chip");
 const sourceFileStatusEl = document.querySelector("#source-file-status");
+const sourceDocumentSummaryEl = document.querySelector("#source-document-summary");
+const parsedProductFieldsEl = document.querySelector("#parsed-product-fields");
 const signalsEl = document.querySelector("#signals");
 const writePlanEl = document.querySelector("#write-plan");
 const draftEl = document.querySelector("#draft");
@@ -76,7 +78,13 @@ const LOCAL_MVP_API_BASE = "http://localhost:4318";
 
 const state = {
   referenceData: { ...EMPTY_REFERENCE_DATA },
-  sourceFiles: []
+  sourceFiles: [],
+  sourceDocumentText: "",
+  sourceDocumentFields: {},
+  sourceDocumentAiDerivedFields: [],
+  sourceDocumentMissingFields: [],
+  sourceDocumentNotes: [],
+  sourceDocumentWarnings: []
 };
 let briefProgressTimer = null;
 let manualBriefStartedAt = "";
@@ -276,6 +284,195 @@ function productDisplayLabel(field = "") {
     recommendedUse: "Recommended Use",
     documentDate: "Document Date"
   }[field] || String(field || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ");
+}
+
+const PRODUCT_FIELD_SECTIONS = [
+  {
+    title: "Product Family",
+    fields: [
+      "productFamily",
+      "chemicalName",
+      "productFamilyDescription",
+      "aliases",
+      "casNumber",
+      "recommendedUse"
+    ]
+  },
+  {
+    title: "Product Code / Package",
+    fields: [
+      "code",
+      "productName",
+      "packagingType",
+      "packaging",
+      "quantityPerPackage",
+      "unitOfMeasure",
+      "supplierType",
+      "supplier"
+    ]
+  },
+  {
+    title: "Safety / Logistics",
+    fields: [
+      "unNumber",
+      "packingGroup",
+      "hazardClass",
+      "specialDesignation",
+      "properShippingName",
+      "signalWord",
+      "hazardSymbols",
+      "nmfcCode",
+      "freightClass"
+    ]
+  },
+  {
+    title: "Physical / Storage",
+    fields: [
+      "physicalState",
+      "appearance",
+      "density",
+      "specificGravity",
+      "viscosity",
+      "flashPoint",
+      "boilingPoint",
+      "storage",
+      "shelfLife",
+      "documentDate"
+    ]
+  }
+];
+
+function usefulProductFields(fields = {}) {
+  return Object.fromEntries(
+    Object.entries(fields ?? {})
+      .filter(([key, value]) => !["documentType", "extractedText"].includes(key) && String(value || "").trim())
+      .map(([key, value]) => [key, String(value || "").trim()])
+  );
+}
+
+function resetSourceDocumentState() {
+  state.sourceFiles = [];
+  state.sourceDocumentText = "";
+  state.sourceDocumentFields = {};
+  state.sourceDocumentAiDerivedFields = [];
+  state.sourceDocumentMissingFields = [];
+  state.sourceDocumentNotes = [];
+  state.sourceDocumentWarnings = [];
+}
+
+function mergeSourceDocumentResult(result = {}) {
+  const fields = usefulProductFields(result.fields ?? {});
+
+  state.sourceDocumentFields = {
+    ...state.sourceDocumentFields,
+    ...fields
+  };
+  state.sourceDocumentAiDerivedFields = dedupeAiFields([
+    ...state.sourceDocumentAiDerivedFields,
+    ...(result.aiDerivedFields ?? [])
+  ]);
+  state.sourceDocumentMissingFields = [...new Set([
+    ...state.sourceDocumentMissingFields,
+    ...(result.missingShelfCycleFields ?? [])
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  state.sourceDocumentNotes = [...new Set([
+    ...state.sourceDocumentNotes,
+    ...(result.shelfCycleNotes ?? [])
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+  state.sourceDocumentWarnings = [...new Set([
+    ...state.sourceDocumentWarnings,
+    ...(result.warnings ?? [])
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+
+  if (String(result.text || "").trim()) {
+    state.sourceDocumentText = [
+      state.sourceDocumentText,
+      `--- ${result.fileName || "SDS/TDS source"} (${result.method || "document extraction"}) ---\n${String(result.text || "").trim()}`
+    ].filter(Boolean).join("\n\n");
+  }
+}
+
+function dedupeAiFields(items = []) {
+  const seen = new Set();
+  const output = [];
+
+  for (const item of items) {
+    const field = String(item?.field || "").trim();
+    const value = String(item?.value || "").trim();
+
+    if (!field || !value || ["documentType", "extractedText"].includes(field)) {
+      continue;
+    }
+
+    const key = `${field}:${value}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    output.push({
+      field,
+      value,
+      reason: String(item?.reason || "").trim()
+    });
+  }
+
+  return output;
+}
+
+function renderParsedProductFields() {
+  if (!parsedProductFieldsEl) {
+    return;
+  }
+
+  const fields = usefulProductFields(state.sourceDocumentFields);
+
+  if (!Object.keys(fields).length) {
+    parsedProductFieldsEl.innerHTML = '<div class="empty-state compact">Parsed ShelfCycle fields will appear here after a source file is loaded or analyzed.</div>';
+    return;
+  }
+
+  parsedProductFieldsEl.innerHTML = PRODUCT_FIELD_SECTIONS
+    .map((section) => {
+      const rows = section.fields
+        .filter((key) => fields[key])
+        .map((key) => `
+          <div class="parsed-field">
+            <span>${escapeHtml(productDisplayLabel(key))}</span>
+            <b>${escapeHtml(fields[key])}</b>
+          </div>
+        `)
+        .join("");
+
+      return rows
+        ? `<section class="parsed-field-section"><strong>${escapeHtml(section.title)}</strong><div class="parsed-field-grid">${rows}</div></section>`
+        : "";
+    })
+    .filter(Boolean)
+    .join("") || '<div class="empty-state compact">No usable ShelfCycle fields were parsed yet.</div>';
+}
+
+function renderSourceDocumentSummary(loaded = []) {
+  if (!sourceDocumentSummaryEl) {
+    return;
+  }
+
+  if (!loaded.length && !state.sourceFiles.length) {
+    sourceDocumentSummaryEl.innerHTML = '<div class="empty-state compact">No SDS/TDS source loaded yet.</div>';
+    return;
+  }
+
+  const cards = (loaded.length ? loaded : state.sourceFiles.map((file) => file.fileName))
+    .map((line) => `
+      <article class="source-document-card">
+        <strong>${escapeHtml(line)}</strong>
+        <span>${Object.keys(state.sourceDocumentFields).length ? "Structured product fields parsed. Review before approving ShelfCycle changes." : "Loaded for analysis. Click Analyze Product Document to extract ShelfCycle fields."}</span>
+      </article>
+    `)
+    .join("");
+
+  sourceDocumentSummaryEl.innerHTML = cards;
 }
 
 function fieldLine(fields = {}, key = "") {
@@ -608,11 +805,33 @@ async function analyze() {
     return;
   }
 
+  const aiLines = aiDerivedSourceLines(state.sourceDocumentAiDerivedFields);
+  const structuredFieldLines = aiDerivedSourceLines(
+    Object.entries(usefulProductFields(state.sourceDocumentFields)).map(([field, value]) => ({
+      field,
+      value,
+      reason: "Parsed from uploaded SDS/TDS source."
+    }))
+  );
+  const sourceText = [
+    inputText.value.trim(),
+    state.sourceDocumentText,
+    structuredFieldLines.length ? `Structured ShelfCycle fields parsed from uploaded SDS/TDS:\n${structuredFieldLines.join("\n")}` : "",
+    aiLines.length ? `AI-derived ShelfCycle fields:\n${aiLines.join("\n")}` : ""
+  ].filter(Boolean).join("\n\n");
+
   const payload = {
-    text: inputText.value,
+    text: sourceText,
     workflow: workflowSelect.value,
     referenceData: state.referenceData,
     files: state.sourceFiles,
+    productDocument: {
+      fields: state.sourceDocumentFields,
+      aiDerivedFields: state.sourceDocumentAiDerivedFields,
+      missingShelfCycleFields: state.sourceDocumentMissingFields,
+      shelfCycleNotes: state.sourceDocumentNotes,
+      warnings: state.sourceDocumentWarnings
+    },
     useAi: workflowSelect.value === "new_product"
   };
 
@@ -635,6 +854,21 @@ async function analyze() {
 
   if (!response.ok) {
     throw new Error(result.error || result.message || "Analyze request failed.");
+  }
+
+  if (result.workflow === "new_product") {
+    state.sourceDocumentFields = {
+      ...state.sourceDocumentFields,
+      ...usefulProductFields(result.fields ?? {})
+    };
+    state.sourceDocumentAiDerivedFields = dedupeAiFields([
+      ...state.sourceDocumentAiDerivedFields,
+      ...(result.aiDerivedFields ?? [])
+    ]);
+    state.sourceDocumentMissingFields = result.missingShelfCycleFields ?? state.sourceDocumentMissingFields;
+    state.sourceDocumentNotes = result.shelfCycleNotes ?? state.sourceDocumentNotes;
+    renderParsedProductFields();
+    renderSourceDocumentSummary([]);
   }
 
   workflowChip.textContent = `${result.workflow} (${Math.round((result.confidence ?? 0) * 100)}%)`;
@@ -1888,7 +2122,8 @@ async function extractPdfSourceFile(file) {
     fileName: file.name,
     mimeType: file.type || "application/pdf",
     size: file.size,
-    dataUrl: await fileToDataUrl(file)
+    dataUrl: await fileToDataUrl(file),
+    forceAi: true
   });
   const request = {
     method: "POST",
@@ -1900,12 +2135,14 @@ async function extractPdfSourceFile(file) {
   let response = await fetch("/api/product-document/extract", request);
   let text = await response.text();
   let result = {};
+  let retriedLocal = false;
 
   try {
     result = text ? JSON.parse(text) : {};
   } catch {
     if (!isLocalMvpHost()) {
       response = await fetch(`${LOCAL_MVP_API_BASE}/api/product-document/extract`, request);
+      retriedLocal = true;
       text = await response.text();
 
       try {
@@ -1915,6 +2152,26 @@ async function extractPdfSourceFile(file) {
       }
     } else {
       throw new Error("Local PDF extraction endpoint returned HTML instead of JSON. Restart the local ClearEdge backend and try again.");
+    }
+  }
+
+  if ((!response.ok || !result.ok) && !retriedLocal && !isLocalMvpHost()) {
+    try {
+      const localResponse = await fetch(`${LOCAL_MVP_API_BASE}/api/product-document/extract`, request);
+      const localText = await localResponse.text();
+      const localResult = localText ? JSON.parse(localText) : {};
+
+      if (localResponse.ok && localResult.ok) {
+        return {
+          ...localResult,
+          warnings: [
+            ...(localResult.warnings ?? []),
+            "Hosted PDF extraction could not complete, so the local ClearEdge backend parsed this file."
+          ]
+        };
+      }
+    } catch {
+      // Keep the hosted error below; it usually explains whether local retry is required.
     }
   }
 
@@ -1935,13 +2192,15 @@ async function loadSourceFiles(files = []) {
     return;
   }
 
-  const chunks = [];
   const skipped = [];
   const loaded = [];
   const warnings = [];
+  resetSourceDocumentState();
+  renderSourceDocumentSummary([]);
+  renderParsedProductFields();
 
   if (sourceFileStatusEl) {
-    sourceFileStatusEl.textContent = "Reading selected SDS/TDS files...";
+    sourceFileStatusEl.textContent = "Parsing selected SDS/TDS files into ShelfCycle fields...";
   }
 
   for (const file of files) {
@@ -1953,16 +2212,18 @@ async function loadSourceFiles(files = []) {
     if (isPdfFile(file)) {
       try {
         const extracted = await extractPdfSourceFile(file);
-        const aiLines = aiDerivedSourceLines(extracted.aiDerivedFields);
-        const fieldLines = aiLines.length ? `\n\nAI-derived ShelfCycle fields:\n${aiLines.join("\n")}` : "";
-        chunks.push(`--- ${file.name} (${extracted.method || "pdf extraction"}) ---\n${extracted.text}${fieldLines}`);
+        mergeSourceDocumentResult(extracted);
         warnings.push(...(extracted.warnings ?? []));
         loaded.push(`${file.name} (${extracted.method || "PDF"})`);
         state.sourceFiles.push({
           fileName: file.name,
           mimeType: file.type || "application/pdf",
           size: file.size,
-          extractionMethod: extracted.method || "pdf"
+          extractionMethod: extracted.method || "pdf",
+          fields: usefulProductFields(extracted.fields ?? {}),
+          missingShelfCycleFields: extracted.missingShelfCycleFields ?? [],
+          shelfCycleNotes: extracted.shelfCycleNotes ?? [],
+          warnings: extracted.warnings ?? []
         });
       } catch (error) {
         skipped.push(`${file.name}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1975,7 +2236,10 @@ async function loadSourceFiles(files = []) {
       continue;
     }
 
-    chunks.push(`--- ${file.name} ---\n${await file.text()}`);
+    state.sourceDocumentText = [
+      state.sourceDocumentText,
+      `--- ${file.name} ---\n${await file.text()}`
+    ].filter(Boolean).join("\n\n");
     loaded.push(file.name);
     state.sourceFiles.push({
       fileName: file.name,
@@ -1985,13 +2249,9 @@ async function loadSourceFiles(files = []) {
     });
   }
 
-  if (chunks.length) {
-    inputText.value = [inputText.value.trim(), chunks.join("\n\n")].filter(Boolean).join("\n\n");
-  }
-
   if (sourceFileStatusEl) {
     sourceFileStatusEl.textContent = loaded.length
-      ? `Loaded ${loaded.join(", ")}.`
+      ? `Loaded ${loaded.join(", ")}. Click Analyze Product Document to build the ShelfCycle family/product plan.`
       : "No source files were loaded.";
   }
 
@@ -2002,6 +2262,9 @@ async function loadSourceFiles(files = []) {
   if (warnings.length) {
     setOutput(warningsEl, warnings.join("\n"));
   }
+
+  renderSourceDocumentSummary(loaded);
+  renderParsedProductFields();
 }
 
 referenceFilesInput?.addEventListener("change", async (event) => {

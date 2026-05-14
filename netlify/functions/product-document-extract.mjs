@@ -1,5 +1,10 @@
 import { extractPdfText } from "../../src/lib/pdf-text-extractor.mjs";
 import { extractProductDocumentPdfWithAi } from "../../src/lib/product-document-ai.mjs";
+import {
+  hasUsefulProductDocumentFields,
+  productDocumentTextQuality,
+  shouldRunProductDocumentPdfAi
+} from "../../src/lib/product-document-source.mjs";
 import { getEnv } from "./_shared/env.mjs";
 
 const HOSTED_PRODUCT_DOCUMENT_TIMEOUT_MS = 18000;
@@ -91,6 +96,11 @@ export default async (req) => {
       )
     };
 
+    const textQuality = productDocumentTextQuality(text);
+    const forceAi = payload.forceAi !== false && shouldRunProductDocumentPdfAi({
+      text,
+      forceAi: payload.forceAi === true
+    });
     let aiResult = {
       ok: false,
       text: "",
@@ -101,7 +111,7 @@ export default async (req) => {
       warnings: []
     };
 
-    if (!text || payload.forceAi === true) {
+    if (forceAi) {
       aiResult = await extractProductDocumentPdfWithAi({
         fileName,
         mimeType,
@@ -112,20 +122,27 @@ export default async (req) => {
       if (aiResult.text) {
         text = aiResult.text;
         method = "openai_pdf";
+      } else if (hasUsefulProductDocumentFields(aiResult.fields)) {
+        method = "openai_pdf_fields";
       }
     }
 
+    const finalQuality = productDocumentTextQuality(text);
+    const usefulFieldsFound = hasUsefulProductDocumentFields(aiResult.fields);
+    const responseText = finalQuality.readable ? text : "";
+
     const combinedWarnings = [
       ...warnings,
+      textQuality.readable ? "" : textQuality.reason,
       ...(aiResult.warnings ?? []),
-      text ? "" : "No readable PDF text was found. If this is a scanned PDF, use the local app or paste extracted text."
+      responseText || usefulFieldsFound ? "" : "No readable PDF text or structured ShelfCycle fields were found. If this is a scanned PDF, use the local app or paste extracted text."
     ].filter(Boolean);
 
     return Response.json({
-      ok: Boolean(text),
+      ok: Boolean(responseText || usefulFieldsFound),
       fileName,
       mimeType,
-      text,
+      text: responseText,
       method,
       fields: aiResult.fields ?? {},
       aiDerivedFields: aiResult.aiDerivedFields ?? [],
@@ -133,7 +150,7 @@ export default async (req) => {
       shelfCycleNotes: aiResult.shelfCycleNotes ?? [],
       warnings: combinedWarnings,
       source: "netlify"
-    }, { status: text ? 200 : 422 });
+    }, { status: responseText || usefulFieldsFound ? 200 : 422 });
   } catch (error) {
     return errorResponse(error);
   }

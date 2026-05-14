@@ -87,13 +87,25 @@
 
                 <label for="source-files">Load SDS/TDS source</label>
                 <input id="source-files" type="file" multiple accept=".pdf,application/pdf,.txt,.md,.csv,.tsv,.sds,.tds,text/*" />
-                <p id="source-file-status" class="form-help">PDFs are text-extracted first, then ChatGPT parses the ShelfCycle product-family and product-code fields when you analyze.</p>
+                <p id="source-file-status" class="form-help">PDFs are parsed by ChatGPT into ShelfCycle product-family and product-code fields. Raw PDF text is kept out of the workbench unless you open the manual fallback.</p>
 
-                <label for="input-text">SDS/TDS or product text</label>
-                <textarea
-                  id="input-text"
-                  placeholder="Paste SDS/TDS text, supplier product page text, technical data, chemical name, CAS, packaging, application notes, pricing, or document metadata..."
-                ></textarea>
+                <div id="source-document-summary" class="document-source-summary">
+                  <div class="empty-state compact">No SDS/TDS source loaded yet.</div>
+                </div>
+
+                <div id="parsed-product-fields" class="parsed-product-fields">
+                  <div class="empty-state compact">Parsed ShelfCycle fields will appear here after a source file is loaded or analyzed.</div>
+                </div>
+
+                <details class="technical-details product-text-fallback">
+                  <summary>Optional manual source text</summary>
+                  <p class="form-help">Use this only when you need to paste text from a supplier page or PDF extraction failed. Uploaded PDFs are not pasted here.</p>
+                  <label for="input-text">Manual SDS/TDS or supplier product text</label>
+                  <textarea
+                    id="input-text"
+                    placeholder="Paste SDS/TDS text, supplier product page text, technical data, chemical name, CAS, packaging, application notes, pricing, or document metadata..."
+                  ></textarea>
+                </details>
               </div>
 
               <aside class="next-action-panel">
