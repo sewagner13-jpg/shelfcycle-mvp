@@ -83,7 +83,7 @@ export function normalizeClearEdgeIntelligence(value = []) {
 
 export function deriveClearEdgeEntityAliases(entries = []) {
   return uniqueStrings(
-    entries.flatMap((entry) => [entry.entity, ...safeArray(entry.aliases), ...safeArray(entry.supplierNames)])
+    entries.flatMap((entry) => [entry.entity, ...safeArray(entry.aliases)])
   );
 }
 
@@ -92,7 +92,7 @@ function topProductMatch(result = {}) {
 }
 
 function detectEntityFromIntelligence(text = "", entries = []) {
-  return matchEntity(text, entries, ["entity", "aliases", "supplierNames"], {
+  return matchEntity(text, entries, ["entity", "aliases", (entry) => entry.masterSpecs?.casNumber], {
     minScore: 0.48,
     limit: 1
   })[0]?.candidate ?? null;
@@ -292,7 +292,7 @@ export function enrichWithClearEdgeIntelligence(result = {}, { text = "", refere
   const intelligenceMatch = matchEntity(
     buildIntelligenceQuery(primaryEntity, text),
     clearedgeIntelligence,
-    ["entity", "aliases", "supplierNames", "customerNames"],
+    ["entity", "aliases", (entry) => entry.masterSpecs?.casNumber],
     {
       minScore: 0.48,
       limit: 1

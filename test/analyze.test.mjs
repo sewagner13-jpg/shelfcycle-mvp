@@ -186,3 +186,70 @@ test("analyzeInput prepends ClearEdge Intelligence to email-derived note drafts"
   assert.ok(result.draftNote.summary.startsWith("### ClearEdge Intelligence Brief"));
   assert.ok(result.draftNote.summary.includes("Commercial Benchmark: $2.45/lb"));
 });
+
+test("analyzeInput does not attach product intelligence from supplier name alone", async () => {
+  const referenceData = await loadExampleData();
+  referenceData.clearedgeIntelligence = [
+    {
+      entity: "RUCOLAC B-321",
+      aliases: ["BYK-345", "TEGO Wet 270"],
+      supplierNames: ["Rudolf"],
+      lastKnownGoodPrice: "$12.86/lb (SO 030)",
+      commercialBenchmarks: ["$13.13/lb for SO 120 packaging."]
+    },
+    {
+      entity: "RUCOLAC B-547",
+      aliases: ["BYK-1786", "TEGO Airex 902W"],
+      supplierNames: ["Rudolf"],
+      lastKnownGoodPrice: "$4.97/lb (C 1000)"
+    }
+  ];
+
+  const result = analyzeInput({
+    referenceData,
+    text: `
+      From: Jason Netherton <jason@accessrudolftech.com>
+      To: Sean Wagner <sean@clear-edge.net>
+      Subject: Re: sample request
+
+      We can help on the sample request from Rudolf. Let me know the target product and package.
+    `
+  });
+
+  assert.notEqual(result.intelligenceContext.status, "matched");
+  assert.ok(!result.draftNote.summary.includes("$12.86/lb"));
+});
+
+test("analyzeInput uses the specific product identity when a shared supplier has many intelligence entries", async () => {
+  const referenceData = await loadExampleData();
+  referenceData.clearedgeIntelligence = [
+    {
+      entity: "RUCOLAC B-321",
+      aliases: ["BYK-345", "TEGO Wet 270"],
+      supplierNames: ["Rudolf"],
+      lastKnownGoodPrice: "$12.86/lb (SO 030)"
+    },
+    {
+      entity: "RUCOLAC B-547",
+      aliases: ["BYK-1786", "TEGO Airex 902W"],
+      supplierNames: ["Rudolf"],
+      lastKnownGoodPrice: "$4.97/lb (C 1000)"
+    }
+  ];
+
+  const result = analyzeInput({
+    referenceData,
+    text: `
+      From: Jason Netherton <jason@accessrudolftech.com>
+      To: Sean Wagner <sean@clear-edge.net>
+      Subject: Re: RUCOLAC B-547 pricing
+
+      Please confirm current pricing for RUCOLAC B-547.
+    `
+  });
+
+  assert.equal(result.intelligenceContext.status, "matched");
+  assert.equal(result.intelligenceContext.matchedEntry.entity, "RUCOLAC B-547");
+  assert.ok(result.draftNote.summary.includes("$4.97/lb"));
+  assert.ok(!result.draftNote.summary.includes("$12.86/lb"));
+});
