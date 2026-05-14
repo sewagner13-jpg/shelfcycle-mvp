@@ -1,7 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mergeProductAiFields } from "../src/lib/product-document-ai.mjs";
+import {
+  mergeProductAiFields,
+  resolveProductDocumentAiConfig
+} from "../src/lib/product-document-ai.mjs";
+
+test("product document parser uses dedicated model default instead of the shared brief model", () => {
+  const config = resolveProductDocumentAiConfig({
+    apiKey: "test-key",
+    model: "gpt-5-mini"
+  });
+
+  assert.equal(config.model, "gpt-4.1-mini");
+});
+
+test("product document parser honors an explicit product-document model", () => {
+  const config = resolveProductDocumentAiConfig({
+    apiKey: "test-key",
+    model: "gpt-5-mini",
+    productDocumentModel: "gpt-4.1-mini-custom"
+  });
+
+  assert.equal(config.model, "gpt-4.1-mini-custom");
+});
 
 test("mergeProductAiFields only fills blank product fields and records AI derivation", () => {
   const result = mergeProductAiFields(

@@ -1698,7 +1698,7 @@ function createServer() {
 
         const combinedWarnings = [
           ...warnings,
-          textQuality.readable ? "" : textQuality.reason,
+          textQuality.readable || responseText || usefulFieldsFound ? "" : textQuality.reason,
           ...(aiResult.warnings ?? []),
           responseText || usefulFieldsFound ? "" : "No readable PDF text or structured ShelfCycle fields were found. If this is a scanned PDF, confirm OpenAI vision/document extraction is configured."
         ].filter(Boolean);

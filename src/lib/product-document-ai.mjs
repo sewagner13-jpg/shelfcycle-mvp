@@ -106,14 +106,43 @@ export function resolveProductDocumentAiConfig(config = {}) {
   const apiKey = firstNonEmpty(config.apiKey, process.env.OPENAI_API_KEY);
   const enabled = config.enabled ?? Boolean(apiKey);
   const timeoutMs = Number.parseInt(String(firstNonEmpty(config.timeoutMs, process.env.OPENAI_PRODUCT_DOCUMENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)), 10) || DEFAULT_TIMEOUT_MS;
+  const explicitProductDocumentModel = firstNonEmpty(
+    config.productDocumentModel,
+    process.env.OPENAI_PRODUCT_DOCUMENT_MODEL
+  );
 
   return {
     enabled: Boolean(enabled && apiKey),
     apiKey,
     endpoint: firstNonEmpty(config.endpoint, process.env.OPENAI_RESPONSES_ENDPOINT, "https://api.openai.com/v1/responses"),
-    model: firstNonEmpty(config.productDocumentModel, config.model, process.env.OPENAI_PRODUCT_DOCUMENT_MODEL, process.env.OPENAI_MODEL, DEFAULT_MODEL),
+    // Product-document parsing uses PDF/file inputs and structured extraction.
+    // Do not inherit the daily-brief model unless a product model is explicitly configured.
+    model: firstNonEmpty(explicitProductDocumentModel, DEFAULT_MODEL, config.model, process.env.OPENAI_MODEL),
     timeoutMs
   };
+}
+
+function userFacingProductDocumentWarnings(warnings = [], { extractionSucceeded = false } = {}) {
+  const output = [];
+
+  for (const warning of warnings) {
+    const clean = compactWhitespace(warning);
+
+    if (!clean) {
+      continue;
+    }
+
+    if (/^AI PDF extraction failed:\s*Forbidden\b/i.test(clean)) {
+      if (!extractionSucceeded) {
+        output.push("OpenAI rejected PDF extraction. Check the product-document model/API key, then retry.");
+      }
+      continue;
+    }
+
+    output.push(clean);
+  }
+
+  return [...new Set(output)];
 }
 
 export function mergeProductAiFields(result = {}, ai = {}, { preferAiFields = false } = {}) {
@@ -341,7 +370,9 @@ export async function extractProductDocumentPdfWithAi({
         text: "",
         fields: {},
         aiDerivedFields: [],
-        warnings: [`AI PDF extraction failed: ${payload.error?.message || response.statusText || response.status}`]
+        warnings: userFacingProductDocumentWarnings([
+          `AI PDF extraction failed: ${payload.error?.message || response.statusText || response.status}`
+        ])
       };
     }
 
@@ -351,7 +382,9 @@ export async function extractProductDocumentPdfWithAi({
       text: compactWhitespace(parsed.fields?.extractedText || ""),
       fields: parsed.fields ?? {},
       aiDerivedFields: parsed.aiDerivedFields ?? [],
-      warnings: parsed.warnings ?? [],
+      warnings: userFacingProductDocumentWarnings(parsed.warnings ?? [], {
+        extractionSucceeded: Boolean(parsed.fields?.extractedText || Object.values(parsed.fields ?? {}).some(Boolean))
+      }),
       missingShelfCycleFields: parsed.missingShelfCycleFields ?? [],
       shelfCycleNotes: parsed.shelfCycleNotes ?? []
     };
