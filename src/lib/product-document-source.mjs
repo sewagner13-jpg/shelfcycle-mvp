@@ -1,6 +1,23 @@
 import { compactWhitespace, uniqueStrings } from "./normalize.mjs";
 
 const STRUCTURED_FIELD_SKIP = new Set(["documentType", "extractedText"]);
+const MISSING_PRODUCT_FIELD_PATTERNS = [
+  { key: "code", label: "Code", pattern: /\bcode\b|\bproduct\s+code\b|\bsku\b/i },
+  { key: "quantityPerPackage", label: "Quantity per Package", pattern: /\bquantity\s+per\s+package\b|\bpackage\s+(?:qty|quantity)\b/i },
+  { key: "packaging", label: "Packaging", pattern: /\bpackag(?:e|ing)\b/i },
+  { key: "packagingType", label: "Packaging Type", pattern: /\bpackaging\s+type\b/i },
+  { key: "supplierType", label: "Supplier Type", pattern: /\bsupplier\s+type\b/i }
+];
+const FAMILY_IDENTIFIER_FIELDS = [
+  { key: "casNumber", label: "CAS Number" },
+  { key: "unNumber", label: "UN/NA Number" },
+  { key: "packingGroup", label: "Packing Group" },
+  { key: "hazardClass", label: "Hazard Class" },
+  { key: "specialDesignation", label: "Special Designation" },
+  { key: "properShippingName", label: "Proper Shipping Name" },
+  { key: "signalWord", label: "GHS Signal Word" },
+  { key: "hazardSymbols", label: "Hazard Symbols" }
+];
 
 export function productDocumentTextQuality(text = "") {
   const clean = compactWhitespace(text);
@@ -142,4 +159,89 @@ export function mergeProductDocumentExtractionIntoResult(result = {}, productDoc
       ...(productDocument.warnings ?? [])
     ])
   };
+}
+
+function normalizedComparable(value = "") {
+  return compactWhitespace(value)
+    .toLowerCase()
+    .replace(/[®™]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function hasExplicitProductCodeSource(text = "") {
+  return /\b(product\s+code|sku|item\s*(?:no|number|#)|material\s*(?:no|number|#)|article\s*(?:no|number|#)|part\s*(?:no|number|#))\b/i.test(text);
+}
+
+export function sanitizeProductDocumentResultForSource(result = {}, sourceText = "") {
+  if (result.workflow !== "new_product") {
+    return result;
+  }
+
+  const fields = { ...(result.fields ?? {}) };
+  const warnings = [...(result.warnings ?? [])];
+  const code = compactWhitespace(fields.code);
+  const codeComparable = normalizedComparable(code);
+  const productNameComparable = normalizedComparable(fields.productName);
+  const productFamilyComparable = normalizedComparable(fields.productFamily);
+  const invalidCodeValue =
+    /\bnot\s+(?:given|provided|specified|available|applicable)\b/i.test(code) ||
+    /\b(?:FreightClass|Freight Class|Pallet|PackagesPerPallet|Packages Per Pallet|DocumentDate|Document Date|DocumentType|Document Type)\s*:/i.test(code) ||
+    code.length > 80;
+
+  if (
+    code &&
+    (
+      invalidCodeValue ||
+      !hasExplicitProductCodeSource(sourceText) ||
+      codeComparable === productNameComparable ||
+      codeComparable === productFamilyComparable
+    )
+  ) {
+    fields.code = "";
+    warnings.push("No explicit product SKU/code was found in the SDS/TDS. Enter the ShelfCycle Product Code before approving product-code creation.");
+  }
+
+  return {
+    ...result,
+    fields,
+    warnings: filterResolvedProductDocumentWarnings(warnings, fields)
+  };
+}
+
+export function filterResolvedProductDocumentWarnings(warnings = [], fields = {}) {
+  const output = [];
+
+  for (const warning of warnings) {
+    const clean = compactWhitespace(warning);
+
+    if (!clean) {
+      continue;
+    }
+
+    const missingField = MISSING_PRODUCT_FIELD_PATTERNS.find((item) =>
+      item.pattern.test(clean) && /\bmissing\b/i.test(clean)
+    );
+
+    if (missingField && compactWhitespace(fields[missingField.key])) {
+      continue;
+    }
+
+    if (/missing family-level identifiers/i.test(clean)) {
+      const missing = FAMILY_IDENTIFIER_FIELDS
+        .filter((item) => !compactWhitespace(fields[item.key]))
+        .map((item) => item.label);
+
+      if (!missing.length) {
+        continue;
+      }
+
+      output.push(`Missing family-level identifiers: ${missing.join(", ")}`);
+      continue;
+    }
+
+    output.push(clean);
+  }
+
+  return [...new Set(output)];
 }

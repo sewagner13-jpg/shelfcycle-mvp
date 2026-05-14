@@ -6,7 +6,8 @@ import {
 } from "../../src/lib/product-document-ai.mjs";
 import {
   hasUsefulProductDocumentFields,
-  mergeProductDocumentExtractionIntoResult
+  mergeProductDocumentExtractionIntoResult,
+  sanitizeProductDocumentResultForSource
 } from "../../src/lib/product-document-source.mjs";
 import { shelfCycleProductRequirementsForFields } from "../../src/lib/shelfcycle-product-requirements.mjs";
 import { getEnv } from "./_shared/env.mjs";
@@ -270,6 +271,7 @@ async function hostedAnalyzeProduct(payload = {}, referenceData = {}) {
     result = refinedResult;
   }
 
+  result = sanitizeProductDocumentResultForSource(result, inputBody);
   return withProductWritePlan(result);
 }
 
@@ -300,7 +302,10 @@ export default async (req) => {
           attachments: (payload.files ?? []).map((file) => ({
             filename: file.fileName || file.name || "",
             mimeType: file.mimeType || file.type || "",
-            size: file.size || 0
+            size: file.size || 0,
+            localPath: file.localPath || file.path || "",
+            path: file.localPath || file.path || "",
+            documentType: file.documentType || file.fields?.documentType || result.documentType || ""
           })),
           driveFileIds: [],
           driveFiles: [],

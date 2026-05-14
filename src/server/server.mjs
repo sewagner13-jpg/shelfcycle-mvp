@@ -24,6 +24,7 @@ import {
   hasUsefulProductDocumentFields,
   mergeProductDocumentExtractionIntoResult,
   productDocumentTextQuality,
+  sanitizeProductDocumentResultForSource,
   shouldRunProductDocumentPdfAi
 } from "../lib/product-document-source.mjs";
 import { customerRequirementsForFields } from "../lib/shelfcycle-customer-requirements.mjs";
@@ -63,6 +64,7 @@ const LOCAL_DAILY_BRIEF_LOCK_DIR = path.join(projectRoot, ".local/daily-brief-ru
 const LOCAL_DAILY_BRIEF_REQUEST_LOCK_DIR = path.join(projectRoot, ".local/daily-brief-request.lock");
 const LOCAL_BRIEF_CONTROL_PATH = path.join(projectRoot, ".local/brief-control.local.json");
 const LOCAL_REVIEW_ACTIONS_DIR = path.join(projectRoot, ".local/review-actions");
+const LOCAL_PRODUCT_DOCUMENTS_DIR = path.join(projectRoot, ".local/product-documents");
 const LOCAL_WORKFLOW_RUNS_DIR = path.join(projectRoot, ".local/workflow-runs");
 const LOCAL_KNOWLEDGE_PATH = path.join(projectRoot, ".local/clearedge-knowledge-local.json");
 const LOCAL_OPENAI_CONFIG_PATH = path.join(projectRoot, ".local/openai.local.json");
@@ -1653,12 +1655,18 @@ function createServer() {
         }
 
         let text = "";
+        let localPath = "";
         let method = "local_pdf_text";
 
         try {
-          text = extractPdfText(Buffer.from(base64, "base64"));
+          const buffer = Buffer.from(base64, "base64");
+          const storedName = `${new Date().toISOString().replace(/[:.]/g, "-")}-${safeFilePart(fileName, "product-document.pdf")}`;
+          localPath = path.join(LOCAL_PRODUCT_DOCUMENTS_DIR, storedName);
+          await mkdir(LOCAL_PRODUCT_DOCUMENTS_DIR, { recursive: true });
+          await writeFile(localPath, buffer);
+          text = extractPdfText(buffer);
         } catch (error) {
-          warnings.push(`Local PDF text extraction failed: ${error instanceof Error ? error.message : String(error)}`);
+          warnings.push(`Local PDF storage/text extraction failed: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         const textQuality = productDocumentTextQuality(text);
@@ -1707,6 +1715,7 @@ function createServer() {
           ok: Boolean(responseText || usefulFieldsFound),
           fileName,
           mimeType,
+          localPath,
           text: responseText,
           method,
           fields: aiResult.fields ?? {},
@@ -1795,6 +1804,7 @@ function createServer() {
               result = refinedResult;
             }
 
+            result = sanitizeProductDocumentResultForSource(result, inputBody);
             result = withUpdatedProductWritePlan(result);
           }
 
@@ -1815,7 +1825,10 @@ function createServer() {
                 attachments: (payload.files ?? []).map((file) => ({
                   filename: file.fileName || file.name || "",
                   mimeType: file.mimeType || file.type || "",
-                  size: file.size || 0
+                  size: file.size || 0,
+                  localPath: file.localPath || file.path || "",
+                  path: file.localPath || file.path || "",
+                  documentType: file.documentType || file.fields?.documentType || result.documentType || ""
                 })),
                 driveFileIds: [],
                 driveFiles: [],
