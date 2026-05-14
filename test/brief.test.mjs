@@ -123,6 +123,72 @@ test("analyzeThread classifies customer thread and detects waiting state", () =>
   assert.ok(result.analysis.draftNote.summary.includes("ACCESS Organosilane G301"));
 });
 
+test("analyzeThread treats unknown business inquiries as potential customers instead of suppliers", () => {
+  const bundle = createKnowledgeBundle({
+    referenceData: {
+      customers: [],
+      contacts: [],
+      products: [{ code: "G301", name: "ACCESS Organosilane G301" }],
+      locations: []
+    },
+    internalUsers: [{ name: "Sean Wagner", email: "sean@clear-edge.net" }]
+  });
+  const thread = {
+    id: "thread-potential-customer",
+    messages: [
+      makeMessage({
+        id: "m-potential",
+        threadId: "thread-potential-customer",
+        from: "New Buyer <buyer@newcoatings.example>",
+        to: "Sean Wagner <sean@clear-edge.net>",
+        subject: "G301 quote and SDS request",
+        body: "Can you quote ACCESS Organosilane G301 and send the SDS? We may need a sample next week.",
+        snippet: "Can you quote G301 and send the SDS?",
+        timestamp: Date.UTC(2026, 4, 2, 12, 0, 0)
+      })
+    ]
+  };
+
+  const result = analyzeThread(thread, bundle);
+
+  assert.equal(result.relationship.relationship, "customer");
+  assert.equal(result.relationship.subtype, "potential_customer");
+  assert.ok(result.relationship.reasons[0].includes("business inquiry"));
+});
+
+test("analyzeThread keeps generic PO and SDS language out of supplier identity matching", () => {
+  const bundle = createKnowledgeBundle({
+    referenceData: {
+      customers: [{ name: "Sun Coatings", website: "https://suncoatings.example" }],
+      contacts: [{ name: "Courtney Quinn", email: "cquinn@suncoatings.example", companyType: "Customer" }],
+      products: [],
+      locations: []
+    },
+    suppliers: [{ name: "St. Louis Group", domain: "thestlouisgroup.com" }],
+    internalUsers: [{ name: "Sean Wagner", email: "sean@clear-edge.net" }]
+  });
+  const thread = {
+    id: "thread-customer-po",
+    messages: [
+      makeMessage({
+        id: "m-customer-po",
+        threadId: "thread-customer-po",
+        from: "Courtney Quinn <cquinn@suncoatings.example>",
+        to: "Sean Wagner <sean@clear-edge.net>",
+        subject: "PO and SDS request",
+        body: "Please confirm our PO and send the SDS. We also discussed St. Louis Group freight timing.",
+        snippet: "Please confirm our PO and send the SDS.",
+        timestamp: Date.UTC(2026, 4, 2, 12, 0, 0)
+      })
+    ]
+  };
+
+  const result = analyzeThread(thread, bundle);
+
+  assert.equal(result.relationship.relationship, "customer");
+  assert.equal(result.relationship.subtype, "core_customer");
+});
+
 test("analyzeThread turns extracted Gmail signatures into supplier and contact create candidates", () => {
   const thread = {
     id: "thread-green-chemical",
@@ -407,7 +473,7 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
   const analyzedThreads = [
     {
       threadId: "191abc123def4567",
-      relationship: { relationship: "customer" },
+      relationship: { relationship: "customer", subtype: "potential_customer" },
       silo: { name: "commercial" },
       state: { state: "needs_attention" },
       priorityScore: 100,
@@ -415,6 +481,19 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
       subject: "Re: G301 pricing",
       externalParticipants: [{ name: "Courtney Quinn", email: "cquinn@suncoatings.example", domain: "suncoatings.example" }],
       reviewUrl: "https://clearedge-daily-brief.netlify.app/review-action.html?id=abc&token=def",
+      workspaceArtifacts: {
+        attachments: [{ filename: "G301-SDS.pdf", mimeType: "application/pdf", messageId: "m1", attachmentId: "att1" }],
+        driveFileIds: [],
+        driveFiles: [],
+        driveScopeAvailable: true,
+        driveError: ""
+      },
+      briefAi: {
+        action: "Review pricing and decide whether to quote Sun Coatings.",
+        why: "Sun Coatings needs pricing and a current SDS for G301.",
+        keyDetails: ["SDS is attached.", "Pricing is still unresolved."],
+        confidence: 0.84
+      },
       analysis: {
         rawExtracts: { keyPoints: ["Pricing and SDS still needed"] },
         roleWorklists: {
@@ -436,6 +515,13 @@ test("buildDailyBrief groups analyzed threads into actionable sections", () => {
 
   assert.ok(brief.includes("Top Actions"));
   assert.ok(brief.includes("Courtney Quinn"));
+  assert.ok(brief.includes("potential customer / commercial"));
+  assert.ok(brief.includes("Relationship handling"));
+  assert.ok(brief.includes("Treat as potential customer/prospect"));
+  assert.ok(brief.includes("<strong>Summary:</strong>"));
+  assert.ok(brief.includes("<li>Sun Coatings needs pricing and a current SDS for G301.</li>"));
+  assert.ok(brief.includes(">Open PDFs</a>"));
+  assert.ok(brief.includes("/open-pdfs.html?id=abc&amp;token=def"));
   assert.ok(brief.includes(">Gmail</a>"));
   assert.ok(brief.includes(">Review Packet</a>"));
   assert.ok(brief.includes(">Decide in ChatGPT</a>"));

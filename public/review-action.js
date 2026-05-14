@@ -378,6 +378,7 @@ function formatDocumentsHtml(workspaceArtifacts = {}) {
     ${blocks.join("")}
     <div class="document-actions">
       <button type="button" class="button-link mini ghost" data-copy-pdfs ${pdfCount ? "" : "disabled"}>Copy PDFs to Desktop folder</button>
+      <button type="button" class="button-link mini ghost" data-open-pdfs ${pdfCount ? "" : "disabled"}>Open PDFs in Adobe</button>
       <span class="small muted">${pdfCount ? `${pdfCount} PDF reference${pdfCount === 1 ? "" : "s"} detected.` : "No PDF attachments detected."}</span>
     </div>
     <p class="small muted" data-document-copy-status></p>
@@ -830,6 +831,54 @@ async function copyPdfDocumentsToDesktop() {
   }
 }
 
+async function openPdfDocumentsInAdobe() {
+  const statusEl = documentsEl?.querySelector("[data-document-copy-status]");
+
+  if (!currentAction?.id) {
+    if (statusEl) {
+      statusEl.textContent = "Review packet is not loaded yet.";
+    }
+    return;
+  }
+
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+
+  if (statusEl) {
+    statusEl.textContent = "Opening PDF references in Adobe...";
+  }
+
+  try {
+    const endpoint = isLocalMvpHost()
+      ? "/api/review-action/open-pdfs"
+      : `${LOCAL_MVP_API_BASE}/api/review-action/open-pdfs`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        reviewActionId: currentAction.id,
+        token
+      })
+    });
+    const payload = await response.json();
+
+    if (!response.ok || !payload.ok) {
+      throw new Error(payload.error?.message || payload.message || "Could not open PDFs.");
+    }
+
+    const opened = payload.opened?.length ?? 0;
+    const copied = payload.copied?.length ?? 0;
+    const unavailable = payload.unavailable?.length ?? 0;
+
+    if (statusEl) {
+      statusEl.textContent = `Opened ${opened}; copied ${copied} to ${payload.folderPath}; unavailable ${unavailable}.`;
+    }
+  } catch (error) {
+    if (statusEl) {
+      statusEl.textContent = error instanceof Error ? error.message : "Could not open PDFs.";
+    }
+  }
+}
+
 function renderDocuments(workspaceArtifacts = {}) {
   if (!documentsEl) {
     return;
@@ -838,6 +887,9 @@ function renderDocuments(workspaceArtifacts = {}) {
   documentsEl.innerHTML = formatDocumentsHtml(workspaceArtifacts);
   documentsEl.querySelector("[data-copy-pdfs]")?.addEventListener("click", () => {
     copyPdfDocumentsToDesktop();
+  });
+  documentsEl.querySelector("[data-open-pdfs]")?.addEventListener("click", () => {
+    openPdfDocumentsInAdobe();
   });
 }
 

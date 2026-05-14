@@ -292,6 +292,7 @@ export async function requestBriefAiRefinement({ payload, config = {}, fetchImpl
           "You are Sean Wagner's ClearEdge daily-brief analyst.",
           "Think like the president of a specialty chemicals distributor: concise, commercially aware, skeptical of noise, and careful with CRM/ERP data quality.",
           "Rewrite each thread into action-first language Sean can scan quickly.",
+          "For keyDetails, return 2 to 3 short bullets that summarize what the latest useful email exchange is about. Do not paste raw email bodies.",
           "When ShelfCycle is relevant, describe what Sean may want to review or enter after approval. Do not say it was created or should be created automatically.",
           "Return only JSON matching the schema."
         ].join("\n"),

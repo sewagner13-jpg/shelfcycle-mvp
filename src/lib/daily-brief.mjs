@@ -579,7 +579,20 @@ function buildLegacyDailyBrief({
 }
 
 function relationshipLabel(item = {}) {
-  return [item.relationship?.relationship, item.silo?.name]
+  const relationship = item.relationship?.relationship || "";
+  const subtype = item.relationship?.subtype || "";
+  const label =
+    subtype === "potential_customer" || subtype === "prospect"
+      ? "potential customer"
+      : subtype === "core_customer"
+        ? "customer"
+        : subtype === "core_supplier"
+          ? "supplier"
+          : subtype === "ops_vendor"
+            ? "ops vendor"
+            : relationship;
+
+  return [label, item.silo?.name]
     .filter(Boolean)
     .map((value) => String(value).replace(/_/g, " "))
     .join(" / ");
@@ -675,6 +688,112 @@ function docsLabel(item = {}) {
 
   if (item.workspaceArtifacts?.driveFileIds?.length && item.workspaceArtifacts?.driveScopeAvailable === false) {
     return "Linked Google files detected";
+  }
+
+  return "";
+}
+
+function reviewActionUrlParts(item = {}) {
+  if (!item.reviewUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(item.reviewUrl);
+    const id = url.searchParams.get("id") || "";
+    const token = url.searchParams.get("token") || "";
+
+    if (!id || !token) {
+      return null;
+    }
+
+    return { origin: url.origin, id, token };
+  } catch {
+    return null;
+  }
+}
+
+function hasPdfDocuments(item = {}) {
+  return [
+    ...(item.workspaceArtifacts?.attachments ?? []),
+    ...(item.workspaceArtifacts?.driveFiles ?? [])
+  ].some((attachment) => {
+    const filename = String(attachment.filename || attachment.name || "").toLowerCase();
+    const mimeType = String(attachment.mimeType || "").toLowerCase();
+    return filename.endsWith(".pdf") || mimeType === "application/pdf";
+  });
+}
+
+function openPdfDocumentsUrl(item = {}) {
+  if (!hasPdfDocuments(item)) {
+    return "";
+  }
+
+  const parts = reviewActionUrlParts(item);
+
+  if (!parts) {
+    return "";
+  }
+
+  const url = new URL("/open-pdfs.html", parts.origin);
+  url.searchParams.set("id", parts.id);
+  url.searchParams.set("token", parts.token);
+  return url.href;
+}
+
+function cleanSummaryBullet(value = "") {
+  return String(value || "")
+    .replace(/^\s*[-*•\d.:\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function summaryBullets(item = {}) {
+  const candidates = [
+    item.briefAi?.why,
+    ...(item.briefAi?.keyDetails ?? []),
+    ...(item.analysis?.rawExtracts?.keyPoints ?? []),
+    ...(item.analysis?.rawExtracts?.actionItems ?? []),
+    item.summary
+  ];
+  const bullets = [];
+  const seen = new Set();
+
+  for (const candidate of candidates) {
+    const clean = cleanSummaryBullet(candidate);
+    const key = clean.toLowerCase();
+
+    if (!clean || seen.has(key) || /^(thread summary|interaction type|subject):/i.test(clean)) {
+      continue;
+    }
+
+    seen.add(key);
+    bullets.push(truncateInsight(clean, 170));
+
+    if (bullets.length >= 3) {
+      break;
+    }
+  }
+
+  return bullets.length ? bullets : ["No concise summary available."];
+}
+
+function relationshipOptions(item = {}) {
+  const subtype = item.relationship?.subtype || "";
+  const relationship = item.relationship?.relationship || "";
+
+  if (subtype === "potential_customer" || subtype === "prospect") {
+    return "Treat as potential customer/prospect unless review confirms supplier.";
+  }
+
+  if (relationship === "customer") {
+    return "Customer-side email; use customer/prospect ShelfCycle actions when needed.";
+  }
+
+  if (relationship === "supplier") {
+    return item.relationship?.subtype === "ops_vendor"
+      ? "Back-office vendor; do not create normal supplier/customer follow-through unless reviewed."
+      : "Supplier-side email; use supplier/contact/product actions when needed.";
   }
 
   return "";
@@ -815,6 +934,7 @@ function actionLinks(item = {}, nextStep = "") {
     { label: "Gmail", href: gmailThreadUrl(item) },
     { label: "Messages", href: messagesThreadUrl(item) },
     { label: "Review Packet", href: item.reviewUrl },
+    { label: "Open PDFs", href: openPdfDocumentsUrl(item) },
     ...executableShelfCycleLinks(item),
     { label: "Decide in ChatGPT", href: chatGptUrlForItem(item, nextStep) }
   ];
@@ -841,6 +961,8 @@ function formatActionCard(item = {}, { timeZone, locale } = {}) {
   const actions = actionLinks(item, nextStep);
   const shelfCycleCandidate = item.briefAi?.shelfCycleCandidate;
   const keyDetails = (item.briefAi?.keyDetails ?? []).filter(Boolean).slice(0, 3);
+  const bullets = summaryBullets(item);
+  const relationshipGuidance = relationshipOptions(item);
   const notes = [
     docs ? `Docs: ${escapeHtml(docs)}` : "",
     intelligence ? `Intelligence: ${escapeHtml(truncateInsight(intelligence, 150))}` : "",
@@ -864,7 +986,9 @@ function formatActionCard(item = {}, { timeZone, locale } = {}) {
       `<strong>Company:</strong> ${escapeHtml(company)}`,
       `<strong>Task state:</strong> ${escapeHtml(taskStateLabel(item))}`,
       `<strong>Confidence:</strong> ${escapeHtml(confidenceLabel(item))}`,
+      relationshipGuidance ? `<strong>Relationship handling:</strong> ${escapeHtml(relationshipGuidance)}` : "",
       `<strong>ShelfCycle status:</strong> ${escapeHtml(shelfCycleRelationshipStatus(item))}`,
+      `<strong>Summary:</strong><ul class="brief-mini-list">${bullets.map((bullet) => `<li>${escapeHtml(bullet)}</li>`).join("")}</ul>`,
       `<strong>Action:</strong> ${escapeHtml(nextStep || "Review if needed.")}`,
       `<strong>Why:</strong> ${escapeHtml(truncateInsight(keyPoint(item), 180))}`,
       ...notes.map((note) => `<strong>${note.split(":")[0]}:</strong>${note.includes(":") ? note.slice(note.indexOf(":") + 1) : ""}`),
@@ -1372,6 +1496,7 @@ function buildActionDailyBrief({
       th:last-child, td:last-child { text-align: right; }
       ul { margin: 8px 0 0 20px; padding: 0; }
       li { margin: 4px 0; }
+      .brief-mini-list { margin-top: 4px; }
       .brief-card { background: #fffdf7; border: 1px solid #d8cdbc; border-left: 5px solid #264738; border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
       .brief-card-secondary { border-left-color: #8a6d38; }
       .brief-kicker { margin: 0 0 4px; color: #785f34; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }

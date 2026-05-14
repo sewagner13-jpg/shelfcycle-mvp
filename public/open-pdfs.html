@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open ClearEdge PDFs</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page-shell narrow">
+      <section class="hero-panel">
+        <p class="eyebrow">ClearEdge Documents</p>
+        <h1>Open PDFs in Adobe</h1>
+        <p class="lede">
+          This page asks the local ClearEdge backend on Sean's Mac to download the PDFs from the review packet,
+          copy them to the Desktop reference folder, and open them in Adobe Acrobat when available.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Status</h2>
+        <p data-open-pdfs-status>Preparing PDF request...</p>
+        <div class="button-row">
+          <button type="button" class="primary-button" data-open-pdfs-retry>Open PDFs Again</button>
+          <a class="button-link ghost" data-open-pdfs-review href="/review-action.html">Open Review Packet</a>
+        </div>
+        <div data-open-pdfs-results class="stacked-list"></div>
+      </section>
+
+      <section class="card muted-card">
+        <h2>Local Requirement</h2>
+        <p>
+          Hosted Netlify can show the link, but only the local app at <code>localhost:4318</code>
+          can download Gmail attachments and open files on this Mac.
+        </p>
+      </section>
+    </main>
+
+    <script src="/open-pdfs.js" type="module"></script>
+  </body>
+</html>

@@ -69,6 +69,26 @@ const SUPPLIER_PATTERNS = [
   /\binvoice\b/i
 ];
 
+const SUPPLIER_IDENTITY_PATTERNS = [
+  /\bsupplier\b/i,
+  /\bmanufacturer\b/i,
+  /\bproducer\b/i,
+  /\braw material\b/i,
+  /\bchemical sales\b/i,
+  /\bexport sales\b/i,
+  /\bimport\/export\b/i
+];
+
+const BUSINESS_INQUIRY_PATTERNS = [
+  /\bcan you (?:quote|send|provide|confirm|get|source)\b/i,
+  /\bdo you (?:have|carry|stock|sell)\b/i,
+  /\bwe (?:need|are looking for|would like|want)\b/i,
+  /\bplease (?:quote|send|provide|confirm|advise)\b/i,
+  /\bneed (?:pricing|price|quote|sample|sds|tds|coa|availability|eta)\b/i,
+  /\binterested in\b/i,
+  /\brequest(?:ing)? (?:pricing|quote|sample|documents?|sds|tds|coa)\b/i
+];
+
 const LOGISTICS_PATTERNS = [
   /\blive unload\b/i,
   /\bcontainer\b/i,
@@ -315,12 +335,12 @@ function matchesOpsVendor(address = {}, bundle = {}, joinedText = "") {
   }
 
   const domain = extractDomain(address.email);
-  const companyText = `${address.name} ${address.email} ${joinedText}`;
+  const identityText = `${address.name} ${address.email}`;
   const nameMatch = (bundle.lookups?.opsVendorNames ?? []).some(
-    (vendorName) => vendorName && companyText.toLowerCase().includes(vendorName.toLowerCase())
+    (vendorName) => vendorName && identityText.toLowerCase().includes(vendorName.toLowerCase())
   );
   const domainMatch = bundle.lookups?.opsVendorDomains?.includes(domain);
-  const patternMatch = OPS_VENDOR_PATTERNS.some((pattern) => pattern.test(companyText));
+  const patternMatch = OPS_VENDOR_PATTERNS.some((pattern) => pattern.test(identityText));
 
   return domainMatch || nameMatch || patternMatch;
 }
@@ -331,19 +351,19 @@ function matchesSupplier(address = {}, bundle = {}, joinedText = "", analysis = 
   }
 
   const domain = extractDomain(address.email);
-  const companyText = `${address.name} ${address.email} ${joinedText}`;
+  const identityText = `${address.name} ${address.email}`;
   const email = address.email?.toLowerCase?.() ?? "";
   const phone = addressPhone(address);
   const nameMatch = (bundle.lookups?.supplierNames ?? []).some(
-    (supplierName) => supplierName && companyText.toLowerCase().includes(supplierName.toLowerCase())
+    (supplierName) => supplierName && identityText.toLowerCase().includes(supplierName.toLowerCase())
   );
   const domainMatch = bundle.lookups?.supplierDomains?.includes(domain);
   const contactMatch = bundle.lookups?.supplierContactEmails?.includes(email);
   const phoneMatch = bundle.lookups?.supplierContactPhones?.includes(phone);
   const analysisContactMatch = addressMatchesContactRole(address, analysis.matches?.contacts ?? [], "supplier");
-  const patternMatch = SUPPLIER_PATTERNS.some((pattern) => pattern.test(companyText));
+  const identityPatternMatch = SUPPLIER_IDENTITY_PATTERNS.some((pattern) => pattern.test(identityText));
 
-  return domainMatch || contactMatch || phoneMatch || analysisContactMatch || nameMatch || patternMatch;
+  return domainMatch || contactMatch || phoneMatch || analysisContactMatch || nameMatch || identityPatternMatch;
 }
 
 function looksLikeSolicitation(events = [], bundle = {}) {
@@ -403,6 +423,18 @@ function findCommercialIdentifiers(text = "") {
   }
 
   return uniqueStrings(identifiers);
+}
+
+function hasBusinessInquirySignals(text = "") {
+  return (
+    BUSINESS_INQUIRY_PATTERNS.some((pattern) => pattern.test(text)) ||
+    SUPPLIER_PATTERNS.some((pattern) => pattern.test(text)) ||
+    COMMERCIAL_PATTERNS.some((pattern) => pattern.test(text)) ||
+    COMPLIANCE_PATTERNS.some((pattern) => pattern.test(text)) ||
+    LOGISTICS_PATTERNS.some((pattern) => pattern.test(text)) ||
+    findCommercialIdentifiers(text).length > 0 ||
+    findContainerIds(text).length > 0
+  );
 }
 
 function attachmentNames(workspaceArtifacts = {}) {
@@ -649,6 +681,15 @@ function classifyRelationship(events = [], bundle = {}, analysis = {}) {
     };
   }
 
+  if (hasBusinessInquirySignals(joinedThreadText)) {
+    return {
+      relationship: "customer",
+      subtype: "potential_customer",
+      confidence: 0.58,
+      reasons: ["unknown external sender with customer-style business inquiry signals"]
+    };
+  }
+
   return {
     relationship: "solicitation",
     subtype: "newsletter",
@@ -844,14 +885,14 @@ function threadToAnalysisText(thread = {}) {
 }
 
 function signatureCompanyKind(signature = {}, relationship = {}) {
-  if (relationship.relationship === "supplier" || relationship.relationship === "customer") {
-    return relationship.relationship;
-  }
-
   const text = `${signature.title || ""} ${signature.companyName || ""}`.toLowerCase();
 
-  if (/\b(supplier|manufacturer|producer|chemical sales|sales team|raw material|distributor)\b/.test(text)) {
+  if (/\b(supplier|manufacturer|producer|chemical sales|raw material|distributor|export sales)\b/.test(text)) {
     return "supplier";
+  }
+
+  if (relationship.relationship === "supplier" || relationship.relationship === "customer") {
+    return relationship.relationship;
   }
 
   return "customer";

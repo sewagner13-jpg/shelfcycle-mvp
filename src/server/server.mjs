@@ -1385,6 +1385,77 @@ async function copyReviewPacketPdfDocuments({ reviewAction = {}, destinationRoot
   };
 }
 
+function spawnAndWait(command, args = []) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: "ignore"
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`${command} exited with code ${code}`));
+    });
+  });
+}
+
+async function openPathInAdobe(filePath = "") {
+  const adobeApps = ["Adobe Acrobat", "Adobe Acrobat Reader"];
+  const attempts = [];
+
+  for (const appName of adobeApps) {
+    try {
+      await spawnAndWait("/usr/bin/open", ["-a", appName, filePath]);
+      return {
+        path: filePath,
+        app: appName,
+        status: "opened"
+      };
+    } catch (error) {
+      attempts.push(`${appName}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  await spawnAndWait("/usr/bin/open", [filePath]);
+  return {
+    path: filePath,
+    app: "default_pdf_app",
+    status: "opened",
+    warning: `Adobe Acrobat was not available; opened with the default PDF app. Attempts: ${attempts.join(" | ")}`
+  };
+}
+
+async function openReviewPacketPdfDocuments({ reviewAction = {}, gmailConfig = {} } = {}) {
+  const copyResult = await copyReviewPacketPdfDocuments({
+    reviewAction,
+    gmailConfig
+  });
+  const opened = [];
+  const openErrors = [];
+
+  for (const file of copyResult.copied ?? []) {
+    try {
+      opened.push(await openPathInAdobe(file.path));
+    } catch (error) {
+      openErrors.push({
+        filename: file.filename,
+        path: file.path,
+        reason: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return {
+    ...copyResult,
+    opened,
+    openErrors
+  };
+}
+
 async function mergeProjectIntelligence(referenceData = {}) {
   const projectEntries = await loadProjectIntelligenceEntries();
   const existingEntries = referenceData.clearedgeIntelligence ?? referenceData.notebookIntelligence ?? [];
@@ -1527,6 +1598,24 @@ function createServer() {
           token: payload.token || ""
         });
         const result = await copyReviewPacketPdfDocuments({
+          reviewAction: rawAction,
+          gmailConfig: await loadLocalGmailConfig()
+        });
+
+        json(response, 200, {
+          ...result,
+          reviewActionId: rawAction.id
+        });
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/review-action/open-pdfs") {
+        const payload = await readBody(request);
+        const rawAction = await loadRawLocalReviewAction({
+          reviewActionId: payload.reviewActionId || payload.id || "",
+          token: payload.token || ""
+        });
+        const result = await openReviewPacketPdfDocuments({
           reviewAction: rawAction,
           gmailConfig: await loadLocalGmailConfig()
         });
