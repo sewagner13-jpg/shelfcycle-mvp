@@ -5,7 +5,7 @@ export const SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS = Object.freeze({
   source: "ShelfCycle product code create/edit dialog",
   entityModel: {
     productFamily:
-      "ShelfCycle Product Family is the chemical/material identity selected from the Product Family dropdown. It must already exist before product-code automation can safely select it.",
+      "ShelfCycle Product Family is the chemical/material identity selected from the Product Family dropdown inside Create Product Code. Automation may type/select this value, use supplier text to disambiguate when possible, and must stop instead of choosing an ambiguous dropdown match.",
     productCode:
       "ShelfCycle Product Code is the package/SKU/inventory record tied to one Product Family, packaging, quantity per package, and supplier mode.",
     familyReuseRule:
@@ -102,6 +102,80 @@ export const SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS = Object.freeze({
     { key: "properShippingName", label: "Proper Shipping Name", entity: "productFamily" },
     { key: "signalWord", label: "GHS Signal Word", entity: "productFamily" },
     { key: "hazardSymbols", label: "Hazard Symbols", entity: "productFamily" }
+  ],
+  shippingReviewFields: [
+    {
+      key: "casNumber",
+      label: "CAS Number",
+      entity: "productFamily",
+      message: "Review CAS from the SDS/TDS before relying on chemical identity."
+    },
+    {
+      key: "unNumber",
+      label: "UN/NA Number",
+      entity: "productFamily",
+      message: "Review UN/NA number from the SDS; leave blank only if not listed or not regulated."
+    },
+    {
+      key: "packingGroup",
+      label: "Packing Group",
+      entity: "productFamily",
+      message: "Review DOT/transport packing group from the SDS."
+    },
+    {
+      key: "hazardClass",
+      label: "Hazard Class",
+      entity: "productFamily",
+      message: "Review transport hazard class from the SDS."
+    },
+    {
+      key: "specialDesignation",
+      label: "Special Designation",
+      entity: "productFamily",
+      message: "Review special transport designations such as marine pollutant, RQ, limited quantity, or PFF."
+    },
+    {
+      key: "properShippingName",
+      label: "Proper Shipping Name",
+      entity: "productFamily",
+      message: "Review the proper shipping name from the SDS transport section."
+    },
+    {
+      key: "signalWord",
+      label: "GHS Signal Word",
+      entity: "productFamily",
+      message: "Review GHS signal word from the SDS hazard section."
+    },
+    {
+      key: "hazardSymbols",
+      label: "Hazard Symbols",
+      entity: "productFamily",
+      message: "Review GHS pictograms/hazard symbols from the SDS."
+    },
+    {
+      key: "nmfcCode",
+      label: "NMFC Code",
+      entity: "productCode",
+      message: "Review NMFC if available from freight/classification data."
+    },
+    {
+      key: "freightClass",
+      label: "Freight Class",
+      entity: "productCode",
+      message: "Review freight class if available from freight/classification data."
+    },
+    {
+      key: "pallet",
+      label: "Pallet",
+      entity: "productCode",
+      message: "Review pallet type if packaging or logistics data provides it."
+    },
+    {
+      key: "packagesPerPallet",
+      label: "Packages per Pallet",
+      entity: "productCode",
+      message: "Review packages per pallet if packaging or logistics data provides it."
+    }
   ],
   packagingTypeOptions: ["Fixed", "Variable"],
   supplierTypeOptions: ["Fixed", "Variable"],
@@ -217,8 +291,19 @@ export function missingShelfCycleProductFields(fields = {}) {
   return missing;
 }
 
+export function missingShelfCycleProductReviewFields(fields = {}) {
+  return SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS.shippingReviewFields
+    .filter((field) => !compactWhitespace(fields[field.key]))
+    .map((field) => ({
+      ...field,
+      blocking: false,
+      reviewOnly: true
+    }));
+}
+
 export function shelfCycleProductRequirementsForFields(fields = {}) {
   const missingRequiredFields = missingShelfCycleProductFields(fields);
+  const missingReviewFields = missingShelfCycleProductReviewFields(fields);
   const presentImportantFields = [
     ...SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS.requiredFields,
     ...SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS.conditionalRequiredFields,
@@ -239,7 +324,9 @@ export function shelfCycleProductRequirementsForFields(fields = {}) {
     requiredFields: SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS.requiredFields,
     conditionalRequiredFields: SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS.conditionalRequiredFields,
     missingRequiredFields,
+    missingReviewFields,
     presentImportantFields,
+    shippingReviewFields: SHELFCYCLE_PRODUCT_CODE_REQUIREMENTS.shippingReviewFields,
     readyForProductCodeCreate: missingRequiredFields.length === 0
   };
 }
@@ -255,6 +342,7 @@ export function productRequirementsPromptBlock() {
     `- Required product-code fields: ${req.requiredFields.map((field) => field.label).join(", ")}.`,
     `- Family-level fields: ${req.productFamilyFields.map(productRequirementLabel).join(", ")}.`,
     `- Package/product-code variant fields: ${req.productCodeVariantFields.map(productRequirementLabel).join(", ")}.`,
+    `- Shipping/regulatory/logistics review fields to extract when available: ${req.shippingReviewFields.map((field) => field.label).join(", ")}.`,
     "- If Supplier Type is Fixed, Supplier is also required.",
     "- Product Family should be the clean chemical/material family name, not the package size.",
     "- Product Code should be the package/SKU code used for inventory, orders, and quoting.",
@@ -265,6 +353,11 @@ export function productRequirementsPromptBlock() {
     `- GHS Signal Word options: ${req.ghsSignalWordOptions.join(", ")}.`,
     `- Hazard Class options: ${req.hazardClassOptions.join(", ")}.`,
     `- Hazard Symbols options: ${req.hazardSymbolOptions.join(", ")}.`,
-    "Do not invent missing values. If you make a practical ShelfCycle suggestion from context, mark it as AI-derived and explain why."
+    "- SDS transport and hazard sections are the preferred source for UN/NA Number, Packing Group, Hazard Class, Proper Shipping Name, Signal Word, and Hazard Symbols.",
+    "- Freight Class, NMFC, Pallet, and Packages per Pallet may come from freight/classification data or packaging logistics, not usually from a TDS.",
+    "- If the document directly supports a field, extract it.",
+    "- If the document does not directly state a field, make a best-supported AI determination only when the product identity, CAS, or regulatory text makes the answer high-confidence; mark it as AI-derived and explain the reasoning.",
+    "- If a TDS lacks SDS-only transport or GHS details and there is no high-confidence basis, leave those fields blank and call out that the SDS is needed rather than guessing.",
+    "Do not fabricate values. If you make a practical ShelfCycle suggestion from context, mark it as AI-derived and explain why."
   ].join("\n");
 }

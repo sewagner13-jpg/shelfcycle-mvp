@@ -70,6 +70,79 @@ async function fetchJson(url, options = {}, { localOnly = false } = {}) {
   }
 }
 
+function sleep(ms = 1000) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function formatWorkflowProgress(run = null) {
+  if (!run) {
+    return "Starting ShelfCycle workflow...";
+  }
+
+  const currentStep = (run.steps ?? []).find((step) => step.id === run.currentStepId);
+  const lines = [
+    `Workflow: ${run.status || "running"}`,
+    currentStep ? `Current step: ${currentStep.label} - ${currentStep.status}${currentStep.detail ? ` - ${currentStep.detail}` : ""}` : "",
+    "",
+    ...(run.steps ?? []).map((step) => `- ${step.status}: ${step.label}${step.detail ? ` - ${step.detail}` : ""}`)
+  ];
+
+  if (run.error) {
+    lines.push("");
+    lines.push(`Error: ${run.error}`);
+  }
+
+  return lines.filter((line) => line !== "").join("\n");
+}
+
+function workflowRunToSubmitPayload(run = null, action = currentProposedAction) {
+  const result = run?.artifacts?.result ?? {};
+
+  return {
+    ok: run?.status === "succeeded",
+    actionType: action?.actionType || run?.metadata?.actionType || "",
+    actionId: action?.id || run?.metadata?.actionId || "",
+    workflowRunId: run?.id || "",
+    target: action?.selectedTarget ?? null,
+    result: {
+      ...result,
+      shelfcycleUrl: result.shelfcycleUrl || run?.artifacts?.shelfcycleUrl || "",
+      mentionResults: result.mentionResults ?? run?.artifacts?.mentionResults ?? []
+    },
+    mentionResults: result.mentionResults ?? run?.artifacts?.mentionResults ?? []
+  };
+}
+
+async function pollShelfCycleWorkflow(workflowRunId = "") {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  let latestRun = null;
+
+  while (Date.now() < deadline) {
+    await sleep(1200);
+    const payload = await fetchJson(localOnlyApiUrl(`/api/workflows/run?id=${encodeURIComponent(workflowRunId)}`), {}, {
+      localOnly: true
+    });
+    latestRun = payload.run ?? null;
+    submitResultEl.textContent = formatWorkflowProgress(latestRun);
+
+    if (latestRun?.status === "succeeded") {
+      return workflowRunToSubmitPayload(latestRun);
+    }
+
+    if (latestRun?.status === "failed" || latestRun?.status === "cancelled") {
+      const error = new Error(latestRun.error || "ShelfCycle automation failed.");
+      error.workflowRun = latestRun;
+      throw error;
+    }
+  }
+
+  const error = new Error("ShelfCycle automation is still running after 10 minutes. Check the ShelfCycle browser window and workflow status.");
+  error.workflowRun = latestRun;
+  throw error;
+}
+
 function setOutput(element, value) {
   element.textContent = value || "None";
 }
@@ -212,15 +285,50 @@ function formatNoteTarget(submission = null) {
   ].join("\n");
 }
 
-function shelfField(label, value = "", { multiline = false } = {}) {
+function requiredMarkerText(required = false) {
+  if (!required) {
+    return "";
+  }
+
+  return typeof required === "string" ? required : "required";
+}
+
+function requiredFieldMarkerFor(action = null, key = "") {
+  const required = action?.requiredFields ?? [];
+
+  if (required.includes(`fields.${key}`)) {
+    return "required";
+  }
+
+  if (required.includes("fields.name_or_email") && ["name", "email"].includes(key)) {
+    return "name or email required";
+  }
+
+  if (required.includes("fields.productCode_or_productName") && ["productCode", "productName"].includes(key)) {
+    return "product code or name required";
+  }
+
+  if (required.includes("fields.price") && ["price", "pricePerUnit", "pricePerPackage"].includes(key)) {
+    return "price required";
+  }
+
+  return "";
+}
+
+function requiredApprovalMarkerFor(action = null, key = "") {
+  return (action?.requiredFields ?? []).includes(`approval.${key}`);
+}
+
+function shelfField(label, value = "", { multiline = false, required = false } = {}) {
   const text = value || "";
+  const markerText = requiredMarkerText(required);
   const control = multiline
     ? `<textarea readonly>${escapeHtml(text)}</textarea>`
     : `<input type="text" readonly value="${escapeHtml(text)}" />`;
 
   return `
     <label>
-      <span>${escapeHtml(label)}</span>
+      <span>${escapeHtml(label)}${markerText ? ` <strong class="required-marker">${escapeHtml(markerText)}</strong>` : ""}</span>
       ${control}
     </label>
   `;
@@ -503,13 +611,14 @@ function renderActionFields(action = null) {
 
   const fieldHtml = entries.map(([key, value]) => {
     const multiline = key === "note" || key === "summary" || String(value).length > 90;
+    const required = requiredFieldMarkerFor(action, key);
     const control = multiline
-      ? `<textarea data-action-field="${escapeHtml(key)}">${escapeHtml(value || "")}</textarea>`
-      : `<input type="text" data-action-field="${escapeHtml(key)}" value="${escapeHtml(value || "")}" />`;
+      ? `<textarea data-action-field="${escapeHtml(key)}" ${required ? 'aria-required="true"' : ""}>${escapeHtml(value || "")}</textarea>`
+      : `<input type="text" data-action-field="${escapeHtml(key)}" value="${escapeHtml(value || "")}" ${required ? 'aria-required="true"' : ""} />`;
 
     return `
       <label>
-        <span>${escapeHtml(fieldLabel(key))}</span>
+        <span>${escapeHtml(fieldLabel(key))}${required ? ` <strong class="required-marker">${escapeHtml(required)}</strong>` : ""}</span>
         ${control}
       </label>
     `;
@@ -527,8 +636,49 @@ function renderActionFields(action = null) {
 
   for (const element of actionFieldsEl.querySelectorAll("[data-action-field]")) {
     element.addEventListener("input", () => {
+      resetPackageSizeApprovalAfterEdit(element.dataset.actionField || "");
+      resetProductFamilyApprovalAfterEdit(element.dataset.actionField || "");
       setSubmitEnabled(requiredFieldsSatisfied());
     });
+  }
+}
+
+function collectApprovals() {
+  const approvals = {};
+
+  for (const element of document.querySelectorAll("[data-action-approval]")) {
+    approvals[element.dataset.actionApproval] = Boolean(element.checked);
+  }
+
+  return approvals;
+}
+
+function resetPackageSizeApprovalAfterEdit(fieldName = "") {
+  if (!["code", "packaging", "quantityPerPackage", "unitOfMeasure"].includes(fieldName)) {
+    return;
+  }
+
+  const packageApproval = document.querySelector('[data-action-approval="packageSize"]');
+  const summary = document.querySelector("[data-package-approval-summary]");
+
+  if (packageApproval) {
+    packageApproval.checked = false;
+  }
+
+  if (summary) {
+    summary.textContent = packageApprovalSummary(mergedActionFields());
+  }
+}
+
+function resetProductFamilyApprovalAfterEdit(fieldName = "") {
+  if (!["productFamily", "chemicalName", "productFamilyDescription", "aliases", "casNumber", "unNumber", "packingGroup", "hazardClass", "properShippingName"].includes(fieldName)) {
+    return;
+  }
+
+  const familyApproval = document.querySelector('[data-action-approval="productFamily"]');
+
+  if (familyApproval) {
+    familyApproval.checked = false;
   }
 }
 
@@ -778,14 +928,73 @@ function actionTargetKind(proposedAction = null) {
   return "customer";
 }
 
-function genericFieldsHtml(fields = {}, labels = []) {
+function genericFieldsHtml(fields = {}, labels = [], { action = null } = {}) {
   const items = labels.length
     ? labels
     : Object.keys(fields).filter((key) => !Array.isArray(fields[key]) && fields[key] !== null && typeof fields[key] !== "object");
 
   return items
-    .map((key) => shelfField(fieldLabel(key), fields[key] || "", { multiline: key === "note" || String(fields[key] || "").length > 90 }))
+    .map((key) => shelfField(fieldLabel(key), fields[key] || "", {
+      multiline: key === "note" || String(fields[key] || "").length > 90,
+      required: requiredFieldMarkerFor(action, key)
+    }))
     .join("");
+}
+
+function packageSizeApprovalHtml(action = null, fields = {}) {
+  if (!requiredApprovalMarkerFor(action, "packageSize")) {
+    return "";
+  }
+
+  const packageSummary = packageApprovalSummary(fields);
+
+  return `
+    <div class="approval-check-card">
+      <label class="approval-check">
+        <input type="checkbox" data-action-approval="packageSize" />
+        <span>
+          <strong>Approve package size before ShelfCycle entry</strong>
+          <small data-package-approval-summary>${escapeHtml(packageSummary)}</small>
+        </span>
+      </label>
+    </div>
+  `;
+}
+
+function productFamilyApprovalHtml(action = null, fields = {}) {
+  if (!requiredApprovalMarkerFor(action, "productFamily")) {
+    return "";
+  }
+
+  const summary = [
+    fields.productFamily ? `Family: ${fields.productFamily}` : "",
+    fields.chemicalName ? `Chemical: ${fields.chemicalName}` : "",
+    fields.casNumber ? `CAS: ${fields.casNumber}` : "",
+    fields.productFamilyDescription ? `Description: ${fields.productFamilyDescription}` : ""
+  ].filter(Boolean).join(" | ");
+
+  return `
+    <div class="approval-check-card">
+      <label class="approval-check">
+        <input type="checkbox" data-action-approval="productFamily" />
+        <span>
+          <strong>Approve product family before ShelfCycle entry</strong>
+          <small>${escapeHtml(summary || "Confirm the product family identity is correct before creating the product code.")}</small>
+        </span>
+      </label>
+    </div>
+  `;
+}
+
+function packageApprovalSummary(fields = {}) {
+  const packageSummary = [
+    fields.code ? `Code: ${fields.code}` : "",
+    fields.packaging ? `Packaging: ${fields.packaging}` : "",
+    fields.quantityPerPackage ? `Quantity per package: ${fields.quantityPerPackage}` : "",
+    fields.unitOfMeasure ? `Unit: ${fields.unitOfMeasure}` : ""
+  ].filter(Boolean).join(" | ");
+
+  return packageSummary || "Confirm packaging and quantity per package are correct.";
 }
 
 function warningsHtml(warnings = []) {
@@ -955,7 +1164,7 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs review"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${genericFieldsHtml(fields, ["name", "email", "website", "phoneNumber", "streetAddress", "streetAddress2", "city", "stateRegion", "zip", "country", "creditLimit", "paymentTerm", "defaultSalesPerson", "defaultCsr", "prospect"])}
+          ${genericFieldsHtml(fields, ["name", "email", "website", "phoneNumber", "streetAddress", "streetAddress2", "city", "stateRegion", "zip", "country", "creditLimit", "paymentTerm", "defaultSalesPerson", "defaultCsr", "prospect"], { action: proposedAction })}
         </div>
         ${duplicateCandidatesHtml(proposedAction)}
         ${customerRequirementsHtml(proposedAction, fields)}
@@ -978,7 +1187,7 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs review"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${genericFieldsHtml(fields, ["name", "phone", "email", "website", "street1", "street2", "city", "country", "stateRegion", "zip", "paymentTerms", "creditLimit", "achRoutingNumber", "achAccountNumber", "costAccount", "preferredUnitOfMeasure", "defaultSupplierRep"])}
+          ${genericFieldsHtml(fields, ["name", "phone", "email", "website", "street1", "street2", "city", "country", "stateRegion", "zip", "paymentTerms", "creditLimit", "achRoutingNumber", "achAccountNumber", "costAccount", "preferredUnitOfMeasure", "defaultSupplierRep"], { action: proposedAction })}
         </div>
         ${duplicateCandidatesHtml(proposedAction)}
         ${supplierRequirementsHtml(proposedAction, fields)}
@@ -1001,8 +1210,8 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable || selectedTarget?.label ? "status-ready" : "status-review"}">${selectedTarget?.label || proposedAction.selectedTarget?.label ? "Target selected" : "Needs supplier"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${shelfField("Supplier", targetLabel)}
-          ${genericFieldsHtml(fields, ["name", "phone", "email", "website", "street1", "street2", "city", "country", "stateRegion", "zip", "paymentTerms", "creditLimit", "achRoutingNumber", "achAccountNumber", "costAccount", "preferredUnitOfMeasure", "defaultSupplierRep"])}
+          ${shelfField("Supplier", targetLabel, { required: (proposedAction.requiredFields ?? []).some((field) => field.startsWith("selectedTarget.")) })}
+          ${genericFieldsHtml(fields, ["name", "phone", "email", "website", "street1", "street2", "city", "country", "stateRegion", "zip", "paymentTerms", "creditLimit", "achRoutingNumber", "achAccountNumber", "costAccount", "preferredUnitOfMeasure", "defaultSupplierRep"], { action: proposedAction })}
         </div>
         ${duplicateCandidatesHtml(proposedAction)}
         ${supplierRequirementsHtml(proposedAction, fields)}
@@ -1023,10 +1232,10 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable || selectedTarget?.label ? "status-ready" : "status-review"}">${selectedTarget?.label || proposedAction.selectedTarget?.label ? "Target selected" : `Needs ${companyType.toLowerCase()}`}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${shelfField(companyType, targetLabel)}
-          ${shelfField("Name", fields.name || "")}
-          ${shelfField("Title", fields.title || "")}
-          ${shelfField("Email", fields.email || "")}
+          ${shelfField(companyType, targetLabel, { required: (proposedAction.requiredFields ?? []).some((field) => field.startsWith("selectedTarget.")) })}
+          ${shelfField("Name", fields.name || "", { required: requiredFieldMarkerFor(proposedAction, "name") })}
+          ${shelfField("Title", fields.title || "", { required: requiredFieldMarkerFor(proposedAction, "title") })}
+          ${shelfField("Email", fields.email || "", { required: requiredFieldMarkerFor(proposedAction, "email") })}
           ${shelfField(phoneLabel, fields.phone || fields.officePhone || "")}
           ${shelfField("Mobile Phone", fields.mobilePhone || "")}
           ${shelfField("Document Types", Array.isArray(fields.documentTypes) ? fields.documentTypes.join(", ") : "")}
@@ -1049,15 +1258,36 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable || selectedTarget?.label ? "status-ready" : "status-review"}">${selectedTarget?.label || proposedAction.selectedTarget?.label ? "Contact selected" : "Needs contact"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${shelfField("Contact", targetLabel)}
+          ${shelfField("Contact", targetLabel, { required: (proposedAction.requiredFields ?? []).some((field) => field.startsWith("selectedTarget.")) })}
           ${shelfField(companyType, fields.companyTarget?.label || "")}
-          ${shelfField("Name", fields.name || "")}
-          ${shelfField("Title", fields.title || "")}
-          ${shelfField("Email", fields.email || "")}
+          ${shelfField("Name", fields.name || "", { required: requiredFieldMarkerFor(proposedAction, "name") })}
+          ${shelfField("Title", fields.title || "", { required: requiredFieldMarkerFor(proposedAction, "title") })}
+          ${shelfField("Email", fields.email || "", { required: requiredFieldMarkerFor(proposedAction, "email") })}
           ${shelfField(phoneLabel, fields.phone || fields.officePhone || "")}
           ${shelfField("Mobile Phone", fields.mobilePhone || "")}
         </div>
         ${duplicateCandidatesHtml(proposedAction)}
+      </article>
+    `;
+  }
+
+  if (proposedAction.actionType === "location_create") {
+    const companyType = fields.companyType === "supplier" ? "Supplier" : "Customer";
+    const locationLabel = fields.companyType === "supplier" ? "New Supplier Location Preview" : "New Customer Shipping Address Preview";
+
+    return `
+      <article class="shelfcycle-form-card shelfcycle-record-preview">
+        <div class="shelfcycle-form-header">
+          <div>
+            <p class="section-kicker">ShelfCycle Location</p>
+            <h3>${escapeHtml(locationLabel)}</h3>
+          </div>
+          <span class="status-pill ${proposedAction.executable || selectedTarget?.label ? "status-ready" : "status-review"}">${selectedTarget?.label || proposedAction.selectedTarget?.label ? "Target selected" : `Needs ${companyType.toLowerCase()}`}</span>
+        </div>
+        <div class="shelfcycle-field-grid">
+          ${shelfField(companyType, targetLabel, { required: (proposedAction.requiredFields ?? []).some((field) => field.startsWith("selectedTarget.")) })}
+          ${genericFieldsHtml(fields, ["name", "email", "phoneNumber", "streetAddress", "streetAddress2", "city", "stateRegion", "zip", "country", "defaultShippingInstructions"], { action: proposedAction })}
+        </div>
       </article>
     `;
   }
@@ -1068,13 +1298,13 @@ function actionPreviewCardHtml(proposedAction = null) {
         <div class="shelfcycle-form-header">
           <div>
             <p class="section-kicker">ShelfCycle Product Family</p>
-            <h3>Product Family Preview</h3>
+            <h3>Make or Update Product Family</h3>
           </div>
-          <span class="status-pill status-review">Review family before product code</span>
+          <span class="status-pill status-review">Family plan</span>
         </div>
-        <p class="muted">Product Family is the chemical/material grouping used by ShelfCycle. Product-code automation can safely select an existing family, but new family creation still requires manual verification.</p>
+        <p class="muted">Product Family is the chemical/material identity in ShelfCycle. Review these family-level fields separately from package-specific Product Code fields.</p>
         <div class="shelfcycle-field-grid">
-          ${genericFieldsHtml(fields, ["productFamily", "chemicalName", "productFamilyDescription", "aliases", "casNumber", "unNumber", "packingGroup", "hazardClass", "specialDesignation", "properShippingName", "signalWord", "hazardSymbols"])}
+          ${genericFieldsHtml(fields, ["productFamily", "chemicalName", "productFamilyDescription", "aliases", "casNumber", "unNumber", "packingGroup", "hazardClass", "specialDesignation", "properShippingName", "signalWord", "hazardSymbols"], { action: proposedAction })}
         </div>
         ${warningsHtml(proposedAction.warnings)}
       </article>
@@ -1086,14 +1316,16 @@ function actionPreviewCardHtml(proposedAction = null) {
       <article class="shelfcycle-form-card shelfcycle-record-preview">
         <div class="shelfcycle-form-header">
           <div>
-            <p class="section-kicker">ShelfCycle Product</p>
-            <h3>Product Code Preview</h3>
+            <p class="section-kicker">ShelfCycle Product Code</p>
+            <h3>Make or Update Product Code / Package</h3>
           </div>
           <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs fields"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${genericFieldsHtml(fields, ["code", "productName", "productFamily", "packagingType", "packaging", "quantityPerPackage", "unitOfMeasure", "supplierType", "supplier", "casNumber", "sdsPath", "nmfcCode", "freightClass", "pallet", "packagesPerPallet", "unNumber", "packingGroup", "hazardClass", "specialDesignation", "properShippingName", "signalWord", "hazardSymbols", "reuseGuidance"])}
+          ${genericFieldsHtml(fields, ["code", "productName", "productFamily", "packagingType", "packaging", "quantityPerPackage", "unitOfMeasure", "supplierType", "supplier", "casNumber", "sdsPath", "nmfcCode", "freightClass", "pallet", "packagesPerPallet", "unNumber", "packingGroup", "hazardClass", "specialDesignation", "properShippingName", "signalWord", "hazardSymbols", "reuseGuidance"], { action: proposedAction })}
         </div>
+        ${productFamilyApprovalHtml(proposedAction, fields)}
+        ${packageSizeApprovalHtml(proposedAction, fields)}
         ${duplicateCandidatesHtml(proposedAction)}
       </article>
     `;
@@ -1110,7 +1342,7 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs review"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${genericFieldsHtml(fields, ["customerName", "productCode", "productName", "pricePerUnit", "pricePerPackage", "dateFrom", "dateTo", "note"])}
+          ${genericFieldsHtml(fields, ["customerName", "productCode", "productName", "pricePerUnit", "pricePerPackage", "dateFrom", "dateTo", "note"], { action: proposedAction })}
         </div>
       </article>
     `;
@@ -1127,8 +1359,8 @@ function actionPreviewCardHtml(proposedAction = null) {
           <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs file or product"}</span>
         </div>
         <div class="shelfcycle-field-grid">
-          ${shelfField("Product", proposedAction.selectedTarget?.label || "No product selected")}
-          ${genericFieldsHtml(fields, ["documentType", "filePath"])}
+          ${shelfField("Product", proposedAction.selectedTarget?.label || "No product selected", { required: (proposedAction.requiredFields ?? []).some((field) => field.startsWith("selectedTarget.")) })}
+          ${genericFieldsHtml(fields, ["documentType", "filePath"], { action: proposedAction })}
         </div>
       </article>
     `;
@@ -1159,7 +1391,7 @@ function actionPreviewCardHtml(proposedAction = null) {
         <span class="status-pill ${proposedAction.executable ? "status-ready" : "status-review"}">${proposedAction.executable ? "Ready for approval" : "Needs review"}</span>
       </div>
       <div class="shelfcycle-field-grid">
-        ${genericFieldsHtml(fields)}
+        ${genericFieldsHtml(fields, [], { action: proposedAction })}
       </div>
     </article>
   `;
@@ -1185,6 +1417,12 @@ function renderShelfCycleFormPreview(action = {}, submission = null) {
       <p class="empty-state">No ShelfCycle-ready fields were found for this packet.</p>
     </article>
   `;
+
+  for (const element of shelfCycleFormPreviewEl.querySelectorAll("[data-action-approval]")) {
+    element.addEventListener("change", () => {
+      setSubmitEnabled(requiredFieldsSatisfied());
+    });
+  }
 
   const researchButton = shelfCycleFormPreviewEl.querySelector("[data-customer-research]");
   if (researchButton) {
@@ -1338,6 +1576,14 @@ function submitButtonLabel(enabled) {
     return "Preview Only - Manual Entry Required";
   }
 
+  if (currentProposedAction.requiredFields?.includes("approval.productFamily") && collectApprovals().productFamily !== true) {
+    return "Approve Product Family";
+  }
+
+  if (currentProposedAction.requiredFields?.includes("approval.packageSize") && collectApprovals().packageSize !== true) {
+    return "Approve Package Size";
+  }
+
   if (!enabled) {
     return "Complete Required Fields";
   }
@@ -1358,12 +1604,12 @@ function requiredFieldsSatisfied(action = currentProposedAction, target = select
     return false;
   }
 
-  if (action.executable) {
-    return true;
-  }
-
   const required = action.requiredFields ?? [];
   const fields = mergedActionFields(action);
+
+  if (!required.length) {
+    return Boolean(action.executable);
+  }
 
   if (required.includes("selectedTarget.id") && !target?.id) {
     return false;
@@ -1414,6 +1660,14 @@ function requiredFieldsSatisfied(action = currentProposedAction, target = select
   }
 
   if (required.includes("fields.quantityPerPackage") && !fields.quantityPerPackage) {
+    return false;
+  }
+
+  if (required.includes("approval.packageSize") && collectApprovals().packageSize !== true) {
+    return false;
+  }
+
+  if (required.includes("approval.productFamily") && collectApprovals().productFamily !== true) {
     return false;
   }
 
@@ -1471,15 +1725,27 @@ function contactActionCompanyKind(action = {}) {
   return companyType.includes("supplier") ? "supplier" : "customer";
 }
 
+function locationActionCompanyKind(action = {}) {
+  const companyType = String(action.fieldValues?.companyType || "").toLowerCase();
+
+  return companyType.includes("supplier") ? "supplier" : "customer";
+}
+
 function applyApprovedTargetToFollowOnActions(target = null) {
   if (!target || !currentAction?.proposedActions) {
     return null;
   }
 
-  let nextContactAction = null;
+  let nextAction = null;
 
   for (const action of currentAction.proposedActions) {
-    if (action.actionType !== "contact_create" || contactActionCompanyKind(action) !== target.kind) {
+    const actionKind = action.actionType === "contact_create"
+      ? contactActionCompanyKind(action)
+      : action.actionType === "location_create"
+        ? locationActionCompanyKind(action)
+        : "";
+
+    if (!["contact_create", "location_create"].includes(action.actionType) || actionKind !== target.kind) {
       continue;
     }
 
@@ -1488,14 +1754,18 @@ function applyApprovedTargetToFollowOnActions(target = null) {
       target,
       ...((action.targetCandidates ?? []).filter((candidate) => candidate.label !== target.label && candidate.id !== target.id))
     ];
-    action.requiredFields = [target.id ? "selectedTarget.id" : "selectedTarget.label", "fields.name_or_email"];
-    action.warnings = (action.warnings ?? []).filter((warning) => !/select a shelfcycle (customer|supplier)/i.test(warning));
+    action.requiredFields = action.actionType === "location_create"
+      ? ["selectedTarget.label", "fields.name"]
+      : [target.id ? "selectedTarget.id" : "selectedTarget.label", "fields.name_or_email"];
+    action.warnings = (action.warnings ?? []).filter((warning) => !/(select|create or select) a shelfcycle (customer|supplier)/i.test(warning));
     action.confidence = Math.max(action.confidence ?? 0, 0.99);
-    action.executable = Boolean(target.label && (action.fieldValues?.name || action.fieldValues?.email) && !action.warnings.length);
-    nextContactAction = nextContactAction ?? action;
+    action.executable = action.actionType === "location_create"
+      ? Boolean(target.label && action.fieldValues?.name && !action.warnings.length)
+      : Boolean(target.label && (action.fieldValues?.name || action.fieldValues?.email) && !action.warnings.length);
+    nextAction = nextAction ?? action;
   }
 
-  return nextContactAction;
+  return nextAction;
 }
 
 function mergeNonEmptyFields(target = {}, source = {}) {
@@ -1710,13 +1980,13 @@ async function submitNote() {
     return;
   }
 
-  submitStatusEl.textContent = `Submitted to local runner: ${currentProposedAction.displayLabel || currentProposedAction.actionType}. Watch ShelfCycle, then verify the result.`;
-  submitResultEl.textContent = "";
+  submitStatusEl.textContent = `Starting local ShelfCycle runner: ${currentProposedAction.displayLabel || currentProposedAction.actionType}.`;
+  submitResultEl.textContent = "Creating workflow run and launching ShelfCycle browser automation...";
   setSubmitEnabled(false);
 
   try {
     const { id, token } = reviewUrlParams();
-    const payload = await fetchJson(localOnlyApiUrl("/api/shelfcycle/submit-action"), {
+    let payload = await fetchJson(localOnlyApiUrl("/api/shelfcycle/submit-action"), {
       method: "POST",
       headers: {
         "content-type": "application/json"
@@ -1728,11 +1998,19 @@ async function submitNote() {
         actionType: currentProposedAction.actionType,
         selectedTarget: targetForSubmit,
         fields: editedFields,
+        approvals: collectApprovals(),
+        async: true,
         approvedByUser: true
       })
     }, {
       localOnly: true
     });
+
+    if (payload.accepted && payload.workflowRunId) {
+      submitStatusEl.textContent = "ShelfCycle automation started. Tracking live workflow progress below.";
+      submitResultEl.textContent = formatWorkflowProgress(payload.workflowRun ?? null);
+      payload = await pollShelfCycleWorkflow(payload.workflowRunId);
+    }
 
     submittedActionIds.add(currentProposedAction.id);
     submitResultEl.textContent = formatSubmitResult(payload);
@@ -1747,7 +2025,7 @@ async function submitNote() {
       renderNoteTargetCard(currentAction, null);
       renderShelfCycleFormPreview(currentAction, null);
       setSubmitEnabled(requiredFieldsSatisfied(currentProposedAction, selectedTarget) && !submittedActionIds.has(currentProposedAction.id));
-      submitStatusEl.textContent = `${createdTarget.label} was submitted to ShelfCycle. The contact action is now loaded with that ${createdTarget.kind} as the target; review it and approve if you want to add the contact too.`;
+      submitStatusEl.textContent = `${createdTarget.label} was submitted to ShelfCycle. The next follow-on action is now loaded with that ${createdTarget.kind} as the target; review it and approve if you want to add it too.`;
       return;
     }
 

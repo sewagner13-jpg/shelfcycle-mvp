@@ -415,11 +415,21 @@ function normalizeWebsiteValue(value = "") {
   return /^https?:\/\//i.test(text) ? text : `https://${text.replace(/^\/+/, "")}`;
 }
 
-function field(label, value = "", key = "") {
+function requiredMarkerText(required = false) {
+  if (!required) {
+    return "";
+  }
+
+  return typeof required === "string" ? required : "required";
+}
+
+function field(label, value = "", key = "", { required = false } = {}) {
+  const markerText = requiredMarkerText(required);
+
   return `
     <label>
-      <span>${escapeHtml(label)}</span>
-      <input type="text" value="${escapeHtml(value || "")}" data-card-field="${escapeHtml(key)}" />
+      <span>${escapeHtml(label)}${markerText ? ` <strong class="required-marker">${escapeHtml(markerText)}</strong>` : ""}</span>
+      <input type="text" value="${escapeHtml(value || "")}" data-card-field="${escapeHtml(key)}" ${markerText ? 'aria-required="true"' : ""} />
     </label>
   `;
 }
@@ -488,6 +498,25 @@ function actionFieldsFromBusinessCard(action = {}, fields = collectBusinessCardE
       mobilePhone: fields.mobilePhone || current.mobilePhone || "",
       faxPhone: fields.faxPhone || current.faxPhone || "",
       documentTypes: current.documentTypes ?? []
+    };
+  }
+
+  if (action.actionType === "location_create") {
+    const companyKind = locationActionCompanyKind(action);
+
+    return {
+      ...current,
+      companyType: companyKind,
+      name: fields.locationName || fields.companyName || current.name || "",
+      email: fields.locationEmail || fields.companyEmail || current.email || "",
+      phoneNumber: fields.locationPhone || fields.companyPhone || fields.phone || current.phoneNumber || "",
+      streetAddress: fields.streetAddress || current.streetAddress || "",
+      streetAddress2: fields.streetAddress2 || current.streetAddress2 || "",
+      city: fields.city || current.city || "",
+      stateRegion: fields.stateRegion || current.stateRegion || "",
+      zip: fields.zip || current.zip || "",
+      country: fields.country || current.country || "",
+      defaultShippingInstructions: fields.defaultShippingInstructions || current.defaultShippingInstructions || ""
     };
   }
 
@@ -580,15 +609,20 @@ function targetCandidatesForKind(analysis = {}, kind = "customer") {
 }
 
 function renderExistingCompanyContactPanel(analysis = {}, actions = []) {
-  const contactActions = actions.filter((action) => action.actionType === "contact_create");
+  const targetActions = actions.filter((action) => ["contact_create", "location_create"].includes(action.actionType));
   const requestedKind = existingContactModeKind();
-  const actionKind = contactActions[0] ? contactActionCompanyKind(contactActions[0]) : "";
+  const firstTargetAction = targetActions[0] ?? null;
+  const actionKind = firstTargetAction?.actionType === "location_create"
+    ? locationActionCompanyKind(firstTargetAction)
+    : firstTargetAction
+      ? contactActionCompanyKind(firstTargetAction)
+      : "";
   const kind = requestedKind || actionKind || (relationshipHintInput.value === "supplier" ? "supplier" : "customer");
   const candidates = targetCandidatesForKind(analysis, kind);
-  const selectedTarget = approvedBusinessCardTargets[kind] ?? contactActions.find((action) => action.selectedTarget?.label)?.selectedTarget ?? null;
+  const selectedTarget = approvedBusinessCardTargets[kind] ?? targetActions.find((action) => action.selectedTarget?.label)?.selectedTarget ?? null;
   const modeLabel = kind === "supplier" ? "supplier" : "customer";
 
-  if (!contactActions.length) {
+  if (!targetActions.length) {
     return `
       <article class="shelfcycle-form-card">
         <div class="shelfcycle-form-header">
@@ -606,9 +640,9 @@ function renderExistingCompanyContactPanel(analysis = {}, actions = []) {
     <article class="shelfcycle-form-card">
       <div class="shelfcycle-form-header">
         <div>
-          <p class="section-kicker">Existing Company Contact</p>
+          <p class="section-kicker">Existing Company Target</p>
           <h3>Target existing ${escapeHtml(modeLabel)}</h3>
-          <p class="small muted">Choose an existing ${escapeHtml(modeLabel)} for the contact action. This does not create a new company.</p>
+          <p class="small muted">Choose an existing ${escapeHtml(modeLabel)} for contact or location actions. This does not create a new company.</p>
         </div>
         <span class="status-pill ${selectedTarget ? "status-ready" : "status-review"}">${selectedTarget ? "Target selected" : "Select target"}</span>
       </div>
@@ -657,7 +691,7 @@ function proposedActionRows(actions = []) {
         <div class="match-row">
           <div>
             <strong>${escapeHtml(action.displayLabel || action.actionType)}</strong>
-            <span>${disabled ? escapeHtml(unavailableReason) : "Ready to approve from this screen"}</span>
+            <span data-action-status="${escapeHtml(action.id || "")}">${disabled ? escapeHtml(unavailableReason) : "Ready to approve from this screen"}</span>
           </div>
           <button
             class="primary mini"
@@ -676,6 +710,8 @@ function proposedActionRows(actions = []) {
 
 function actionApprovalButtonLabel(action = {}) {
   switch (action.actionType) {
+    case "location_create":
+      return "Approve & Create Location";
     case "supplier_update":
       return "Approve & Update Supplier";
     case "supplier_create":
@@ -703,6 +739,18 @@ function contactActionCompanyKind(action = {}) {
   return companyType.includes("supplier") ? "supplier" : "customer";
 }
 
+function locationActionCompanyKind(action = {}) {
+  const requestedKind = existingContactModeKind();
+
+  if (requestedKind) {
+    return requestedKind;
+  }
+
+  const companyType = String(action.fieldValues?.companyType || "").toLowerCase();
+
+  return companyType.includes("supplier") ? "supplier" : "customer";
+}
+
 function resolvedSubmitTarget(action = {}) {
   if (action.selectedTarget?.label || action.selectedTarget?.id) {
     return action.selectedTarget;
@@ -710,6 +758,11 @@ function resolvedSubmitTarget(action = {}) {
 
   if (action.actionType === "contact_create") {
     const kind = contactActionCompanyKind(action);
+    return approvedBusinessCardTargets[kind] ?? typedExistingCompanyTarget(kind) ?? null;
+  }
+
+  if (action.actionType === "location_create") {
+    const kind = locationActionCompanyKind(action);
     return approvedBusinessCardTargets[kind] ?? typedExistingCompanyTarget(kind) ?? null;
   }
 
@@ -727,17 +780,47 @@ function actionApprovalUnavailableReason(action = {}) {
 
   const resolvedTarget = resolvedSubmitTarget(action);
 
+  if (action.actionType === "contact_create" && !String(action.fieldValues?.name || action.fieldValues?.email || "").trim()) {
+    return "Contact Name or Email is required before approving this contact.";
+  }
+
   if (action.actionType === "contact_create" && resolvedTarget?.label && (action.fieldValues?.name || action.fieldValues?.email)) {
-    const blockingWarnings = (action.warnings ?? []).filter((warning) => !/select a shelfcycle (customer|supplier)/i.test(warning));
+    const companyKind = contactActionCompanyKind(action);
+    const titlePresent = Boolean(String(action.fieldValues?.title || "").trim());
+
+    if (companyKind === "supplier" && !titlePresent) {
+      return "Supplier contact Title is required before approving this contact.";
+    }
+
+    const blockingWarnings = (action.warnings ?? []).filter((warning) => {
+      if (/select a shelfcycle (customer|supplier)/i.test(warning)) {
+        return false;
+      }
+
+      if (companyKind === "supplier" && titlePresent && /supplier contact creation requires .*title field/i.test(warning)) {
+        return false;
+      }
+
+      return true;
+    });
     return blockingWarnings[0] || "";
+  }
+
+  if (action.actionType === "location_create") {
+    const locationName = String(action.fieldValues?.name || "").trim();
+
+    if (!locationName) {
+      return "Location Name is required before approving this location.";
+    }
+
+    if (resolvedTarget?.label) {
+      const blockingWarnings = (action.warnings ?? []).filter((warning) => !/create or select a shelfcycle (customer|supplier)/i.test(warning));
+      return blockingWarnings[0] || "";
+    }
   }
 
   if (["customer_create", "supplier_create"].includes(action.actionType) && !String(action.fieldValues?.name || "").trim()) {
     return "Name is required before approving this ShelfCycle create.";
-  }
-
-  if (action.actionType === "contact_create" && !String(action.fieldValues?.name || action.fieldValues?.email || "").trim()) {
-    return "Contact name or email is required before approving this contact.";
   }
 
   if (!action.executable) {
@@ -872,7 +955,13 @@ function applyApprovedTargetToFollowOnActions(target = null) {
   approvedBusinessCardTargets[target.kind] = target;
 
   for (const action of currentScanPayload.action.proposedActions) {
-    if (action.actionType !== "contact_create" || contactActionCompanyKind(action) !== target.kind) {
+    const actionKind = action.actionType === "contact_create"
+      ? contactActionCompanyKind(action)
+      : action.actionType === "location_create"
+        ? locationActionCompanyKind(action)
+        : "";
+
+    if (!["contact_create", "location_create"].includes(action.actionType) || actionKind !== target.kind) {
       continue;
     }
 
@@ -881,22 +970,36 @@ function applyApprovedTargetToFollowOnActions(target = null) {
       target,
       ...((action.targetCandidates ?? []).filter((candidate) => candidate.label !== target.label && candidate.id !== target.id))
     ];
-    action.requiredFields = [target.id ? "selectedTarget.id" : "selectedTarget.label", "fields.name_or_email"];
-    action.warnings = (action.warnings ?? []).filter((warning) => !/select a shelfcycle (customer|supplier)/i.test(warning));
+    action.requiredFields = action.actionType === "location_create"
+      ? ["selectedTarget.label", "fields.name"]
+      : [target.id ? "selectedTarget.id" : "selectedTarget.label", "fields.name_or_email"];
+    action.warnings = (action.warnings ?? []).filter((warning) => !/(select|create or select) a shelfcycle (customer|supplier)/i.test(warning));
     action.confidence = Math.max(action.confidence ?? 0, 0.99);
-    action.executable = Boolean(target.label && (action.fieldValues?.name || action.fieldValues?.email) && !action.warnings.length);
+    action.executable = action.actionType === "location_create"
+      ? Boolean(target.label && action.fieldValues?.name && !action.warnings.length)
+      : Boolean(target.label && (action.fieldValues?.name || action.fieldValues?.email) && !action.warnings.length);
   }
 }
 
 function setBusinessCardActionButtonsDisabled(disabled = false) {
   for (const button of resultGridEl.querySelectorAll("[data-business-card-submit-action]")) {
+    const status = resultGridEl.querySelector(`[data-action-status="${CSS.escape(button.dataset.actionId || "")}"]`);
+
     if (disabled) {
       button.disabled = true;
+      if (status) {
+        status.textContent = "Submitting approved action to ShelfCycle...";
+      }
       continue;
     }
 
     const action = (currentScanPayload?.action?.proposedActions ?? []).find((item) => item.id === button.dataset.actionId && item.actionType === button.dataset.actionType);
-    button.disabled = !action || Boolean(actionApprovalUnavailableReason(action));
+    const unavailableReason = action ? actionApprovalUnavailableReason(action) : "Action is no longer available.";
+
+    button.disabled = !action || Boolean(unavailableReason);
+    if (status) {
+      status.textContent = unavailableReason || "Ready to approve from this screen";
+    }
   }
 }
 
@@ -927,6 +1030,23 @@ function renderResults(payload = {}) {
   const analysis = payload.analysis ?? {};
   const fields = analysis.fields ?? {};
   const action = payload.action ?? {};
+  const proposedActions = action.proposedActions ?? [];
+  const requiresSupplierContactTitle = (action.proposedActions ?? []).some((item) =>
+    item.actionType === "contact_create" && contactActionCompanyKind(item) === "supplier"
+  );
+  const requiresCompanyName = proposedActions.some((item) =>
+    ["customer_create", "supplier_create", "supplier_update"].includes(item.actionType) &&
+    (item.requiredFields ?? []).includes("fields.name")
+  );
+  const requiresLocationName = proposedActions.some((item) =>
+    item.actionType === "location_create" && (item.requiredFields ?? []).includes("fields.name")
+  );
+  const hasCustomerLocationAction = proposedActions.some((item) =>
+    item.actionType === "location_create" && locationActionCompanyKind(item) === "customer"
+  );
+  const requiresContactIdentity = proposedActions.some((item) =>
+    item.actionType === "contact_create" && (item.requiredFields ?? []).includes("fields.name_or_email")
+  );
   const confidence = Math.round((analysis.confidence ?? 0) * 100);
   currentScanPayload = payload;
 
@@ -944,9 +1064,9 @@ function renderResults(payload = {}) {
         <span class="status-pill status-review">${escapeHtml(fields.relationshipType || "review")}</span>
       </div>
       <div class="shelfcycle-field-grid">
-        ${field("Name", fields.personName, "personName")}
-        ${field("Title", fields.title, "title")}
-        ${field("Email", fields.email, "email")}
+        ${field("Name", fields.personName, "personName", { required: requiresContactIdentity ? "name or email required" : false })}
+        ${field("Title", fields.title, "title", { required: requiresSupplierContactTitle })}
+        ${field("Email", fields.email, "email", { required: requiresContactIdentity ? "name or email required" : false })}
         ${field("Phone", fields.phone, "phone")}
         ${field("Mobile", fields.mobilePhone, "mobilePhone")}
         ${field("Fax", fields.faxPhone, "faxPhone")}
@@ -962,7 +1082,8 @@ function renderResults(payload = {}) {
         <span class="status-pill status-review">Not saved</span>
       </div>
       <div class="shelfcycle-field-grid">
-        ${field("Company", fields.companyName, "companyName")}
+        ${field("Company", fields.companyName, "companyName", { required: requiresCompanyName })}
+        ${requiresLocationName ? field("Location Name", fields.locationName || fields.companyName, "locationName", { required: true }) : ""}
         ${field("Website", fields.website, "website")}
         ${field("Street Address", fields.streetAddress, "streetAddress")}
         ${field("Street Address 2", fields.streetAddress2, "streetAddress2")}
@@ -970,6 +1091,7 @@ function renderResults(payload = {}) {
         ${field("State / Region", fields.stateRegion, "stateRegion")}
         ${field("Zip", fields.zip, "zip")}
         ${field("Country", fields.country, "country")}
+        ${hasCustomerLocationAction ? field("Default Shipping Instructions", fields.defaultShippingInstructions, "defaultShippingInstructions") : ""}
       </div>
     </article>
 
@@ -1158,7 +1280,7 @@ async function submitBusinessCardAction({ actionId = "", actionType = "" } = {})
     if (createdTarget) {
       applyApprovedTargetToFollowOnActions(createdTarget);
       renderResults(currentScanPayload);
-      submitStatus(`${formatSubmitResult(payload)}\n\n${createdTarget.label} is now available as the target for the contact action. You can approve the contact without scanning again.`);
+      submitStatus(`${formatSubmitResult(payload)}\n\n${createdTarget.label} is now available as the target for follow-on contact and location actions. You can approve them without scanning again.`);
     } else {
       setBusinessCardActionButtonsDisabled(false);
       submitStatus(formatSubmitResult(payload));

@@ -1,7 +1,6 @@
 import http from "node:http";
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 import { analyzeInput } from "../lib/analyze.mjs";
@@ -9,15 +8,18 @@ import { analyzeBusinessCard, businessCardVisionStatus, createBusinessCardReview
 import { researchCompanyPublicInfo } from "../lib/customer-web-enrichment.mjs";
 import { importCsv } from "../lib/csv-import.mjs";
 import { createKnowledgeBundle } from "../lib/knowledge-bundle.mjs";
+import { compactWhitespace } from "../lib/normalize.mjs";
 import { addExclusion, loadBriefControl, saveBriefControl } from "../lib/brief-control.mjs";
 import { createReviewActionRecord, loadLocalReviewAction, saveLocalReviewAction, sanitizeReviewAction } from "../lib/local-review-actions.mjs";
 import { collectExecutableActions, collectProposedActions, findProposedAction, SHELFCYCLE_ACTION_TYPES, SHELFCYCLE_ERROR_CODES } from "../lib/shelfcycle-action-router.mjs";
 import { executeApprovedShelfCycleAction } from "../lib/shelfcycle-action-executor.mjs";
 import { fetchGmailAttachmentData, trashGmailThread } from "../lib/gmail-client.mjs";
 import { extractPdfText } from "../lib/pdf-text-extractor.mjs";
+import { parseLabeledProductFields } from "../lib/parse-product-document.mjs";
 import {
   extractProductDocumentPdfWithAi,
   refineProductDocumentWithAi,
+  researchProductDocumentFieldWithAi,
   resolveProductDocumentAiConfig
 } from "../lib/product-document-ai.mjs";
 import {
@@ -39,6 +41,7 @@ import {
   WORKFLOW_STEP_STATUS,
   actionContractForProposedAction,
   appendWorkflowLog,
+  cancelWorkflowRun,
   createWorkflowRun,
   failWorkflowRun,
   finishWorkflowRun,
@@ -47,98 +50,32 @@ import {
   loadWorkflowRun,
   updateWorkflowStep
 } from "../lib/workflow-runs.mjs";
+import {
+  AUTOMATION_RUNNER_PATH,
+  DEFAULT_INTELLIGENCE_FILE,
+  LEGACY_INTELLIGENCE_FILE,
+  LOCAL_BRIEF_CONTROL_PATH,
+  LOCAL_DAILY_BRIEF_LATEST_PREVIEW_PATH,
+  LOCAL_DAILY_BRIEF_LATEST_SUMMARY_PATH,
+  LOCAL_DAILY_BRIEF_LOCK_DIR,
+  LOCAL_DAILY_BRIEF_PROGRESS_PATH,
+  LOCAL_DAILY_BRIEF_REQUEST_LOCK_DIR,
+  LOCAL_DAILY_BRIEF_RUNNER_PATH,
+  LOCAL_DAILY_BRIEF_RUNS_DIR,
+  LOCAL_HOSTED_SETTINGS_PATH,
+  LOCAL_KNOWLEDGE_PATH,
+  LOCAL_OPENAI_CONFIG_PATH,
+  LOCAL_PRODUCT_DOCUMENTS_DIR,
+  LOCAL_REVIEW_ACTIONS_DIR,
+  LOCAL_WORKFLOW_RUNS_DIR,
+  dataRoot,
+  projectRoot,
+  publicRoot
+} from "./paths.mjs";
+import { CORS_HEADERS, createStaticFileServer, html, json, readBody } from "./http-utils.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, "../..");
-const publicRoot = path.join(projectRoot, "public");
-const dataRoot = path.join(projectRoot, "data");
-const DEFAULT_INTELLIGENCE_FILE = path.join(dataRoot, "clearedge-intelligence.json");
-const LEGACY_INTELLIGENCE_FILE = path.join(dataRoot, "clearedge-brain-notebook-intelligence.json");
-const AUTOMATION_RUNNER_PATH = path.join(projectRoot, "src/lib/shelfcycle-automation-runner.mjs");
-const LOCAL_DAILY_BRIEF_RUNNER_PATH = path.join(projectRoot, "apps/daily-brief/run-local-scheduled.mjs");
-const LOCAL_DAILY_BRIEF_RUNS_DIR = path.join(projectRoot, ".local/daily-brief-runs");
-const LOCAL_DAILY_BRIEF_PROGRESS_PATH = path.join(LOCAL_DAILY_BRIEF_RUNS_DIR, "current-status.json");
-const LOCAL_DAILY_BRIEF_LATEST_SUMMARY_PATH = path.join(LOCAL_DAILY_BRIEF_RUNS_DIR, "latest-run-summary.json");
-const LOCAL_DAILY_BRIEF_LATEST_PREVIEW_PATH = path.join(LOCAL_DAILY_BRIEF_RUNS_DIR, "latest-brief-preview.json");
-const LOCAL_DAILY_BRIEF_LOCK_DIR = path.join(projectRoot, ".local/daily-brief-runner.lock");
-const LOCAL_DAILY_BRIEF_REQUEST_LOCK_DIR = path.join(projectRoot, ".local/daily-brief-request.lock");
-const LOCAL_BRIEF_CONTROL_PATH = path.join(projectRoot, ".local/brief-control.local.json");
-const LOCAL_REVIEW_ACTIONS_DIR = path.join(projectRoot, ".local/review-actions");
-const LOCAL_PRODUCT_DOCUMENTS_DIR = path.join(projectRoot, ".local/product-documents");
-const LOCAL_WORKFLOW_RUNS_DIR = path.join(projectRoot, ".local/workflow-runs");
-const LOCAL_KNOWLEDGE_PATH = path.join(projectRoot, ".local/clearedge-knowledge-local.json");
-const LOCAL_OPENAI_CONFIG_PATH = path.join(projectRoot, ".local/openai.local.json");
-const LOCAL_HOSTED_SETTINGS_PATH = path.join(projectRoot, ".local/hosted-brief-settings.local.json");
-
-const MIME_TYPES = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".txt": "text/plain; charset=utf-8"
-};
-const CORS_HEADERS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type"
-};
-
-function json(response, statusCode, payload) {
-  response.writeHead(statusCode, {
-    "content-type": "application/json; charset=utf-8",
-    ...CORS_HEADERS
-  });
-  response.end(JSON.stringify(payload, null, 2));
-}
-
-function html(response, statusCode, body) {
-  response.writeHead(statusCode, {
-    "content-type": "text/html; charset=utf-8",
-    ...CORS_HEADERS
-  });
-  response.end(body);
-}
-
-async function readBody(request) {
-  const chunks = [];
-
-  for await (const chunk of request) {
-    chunks.push(chunk);
-  }
-
-  const body = Buffer.concat(chunks).toString("utf8");
-  return body ? JSON.parse(body) : {};
-}
-
-async function serveStatic(requestPath, response) {
-  const safePath = requestPath === "/" ? "/index.html" : requestPath;
-  const localPaths = safePath.startsWith("/data/")
-    ? [
-      path.join(publicRoot, safePath.replace(/^\//, "")),
-      path.join(dataRoot, safePath.replace(/^\/data\//, ""))
-    ]
-    : [path.join(publicRoot, safePath.replace(/^\//, ""))];
-
-  for (const localPath of localPaths) {
-    try {
-      const contents = await readFile(localPath);
-      const extension = path.extname(localPath);
-
-      response.writeHead(200, {
-        "content-type": MIME_TYPES[extension] ?? "application/octet-stream"
-      });
-      response.end(contents);
-      return;
-    } catch {
-      // Try the next static candidate.
-    }
-  }
-
-  response.writeHead(404, {
-    "content-type": "text/plain; charset=utf-8"
-  });
-  response.end("Not found");
-}
+const activeShelfCycleAbortControllers = new Map();
+const serveStatic = createStaticFileServer({ publicRoot, dataRoot });
 
 async function fetchReviewAction(reviewUrl = "") {
   const url = String(reviewUrl).trim();
@@ -1058,6 +995,137 @@ function errorResponse({ reviewActionId = "", actionId = "", actionType = "", wo
   };
 }
 
+function missingRequiredFieldValues(proposedAction = {}) {
+  return (proposedAction.requiredFields ?? [])
+    .filter((fieldPath) => String(fieldPath || "").startsWith("fields."))
+    .filter((fieldPath) => !String(fieldPath || "").includes("_or_"))
+    .map((fieldPath) => {
+      const fieldName = fieldPath.replace(/^fields\./, "");
+      const value = proposedAction.fieldValues?.[fieldName];
+
+      return {
+        fieldPath,
+        fieldName,
+        missing: !String(value ?? "").trim()
+      };
+    })
+    .filter((item) => item.missing);
+}
+
+async function runApprovedShelfCycleSubmission({
+  reviewActionId = "",
+  actionId = "",
+  actionType = "",
+  workflowRunId = "",
+  rawAction = {},
+  proposedAction = {}
+} = {}) {
+  const abortController = new AbortController();
+  activeShelfCycleAbortControllers.set(workflowRunId, abortController);
+
+  try {
+    await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "shelfcycle_submit", {
+      status: WORKFLOW_STEP_STATUS.RUNNING,
+      detail: `Submitting ${proposedAction.displayLabel || proposedAction.actionType} to ShelfCycle.`
+    }).catch(() => {});
+
+    const result = await executeApprovedShelfCycleAction({
+      reviewAction: rawAction,
+      proposedAction,
+      automationRunnerPath: AUTOMATION_RUNNER_PATH,
+      cwd: projectRoot,
+      workflowRunId,
+      workflowRunsDir: LOCAL_WORKFLOW_RUNS_DIR,
+      abortSignal: abortController.signal
+    });
+
+    const latestRunAfterAutomation = await loadWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId);
+
+    if (latestRunAfterAutomation?.status === WORKFLOW_STATUS.CANCELLED) {
+      return {
+        ok: false,
+        cancelled: true,
+        reviewActionId,
+        actionId,
+        actionType,
+        workflowRunId,
+        message: "ShelfCycle action was cancelled before result logging."
+      };
+    }
+
+    const isDryRunResult = result.status === "dry_run";
+
+    await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "shelfcycle_submit", {
+      status: WORKFLOW_STEP_STATUS.SUCCEEDED,
+      detail: result.message || "ShelfCycle action submitted.",
+      runMetrics: {
+        submittedActions: isDryRunResult ? 0 : 1,
+        dryRunActions: isDryRunResult ? 1 : 0,
+        mentionLinksAttempted: result.mentionResults?.length ?? 0,
+        mentionLinksCreated: (result.mentionResults ?? []).filter((item) => item.status === "linked").length
+      },
+      artifacts: {
+        shelfcycleUrl: result.shelfcycleUrl || "",
+        mentionResults: result.mentionResults ?? [],
+        result
+      }
+    }).catch(() => {});
+    await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "result_log", {
+      status: WORKFLOW_STEP_STATUS.SUCCEEDED,
+      detail: "ShelfCycle submission result recorded.",
+      actionState: isDryRunResult ? ACTION_STATE.DRY_RUN : ACTION_STATE.SUBMITTED
+    }).catch(() => {});
+    await finishWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, {
+      metrics: {
+        submittedActions: isDryRunResult ? 0 : 1,
+        dryRunActions: isDryRunResult ? 1 : 0,
+        failedActions: 0
+      },
+      artifacts: {
+        shelfcycleUrl: result.shelfcycleUrl || "",
+        mentionResults: result.mentionResults ?? [],
+        result
+      }
+    }).catch(() => {});
+
+    return {
+      ok: true,
+      reviewActionId,
+      actionId,
+      actionType,
+      workflowRunId,
+      target: proposedAction.selectedTarget,
+      mentionResults: result.mentionResults ?? [],
+      result
+    };
+  } catch (error) {
+    const latestRun = await loadWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId);
+
+    if (latestRun?.status === WORKFLOW_STATUS.CANCELLED || error?.name === "AbortError") {
+      await cancelWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, {
+        stepId: latestRun?.currentStepId || "shelfcycle_submit",
+        message: "ShelfCycle agent run cancelled by user."
+      }).catch(() => {});
+      return {
+        ok: false,
+        cancelled: true,
+        reviewActionId,
+        actionId,
+        actionType,
+        workflowRunId,
+        message: "ShelfCycle agent run cancelled by user."
+      };
+    }
+
+    await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, error, {
+      stepId: "shelfcycle_submit"
+    }).catch(() => {});
+    throw error;
+  } finally {
+    activeShelfCycleAbortControllers.delete(workflowRunId);
+  }
+}
+
 async function readJsonIfPresent(filePath) {
   try {
     return JSON.parse(await readFile(filePath, "utf8"));
@@ -1104,12 +1172,17 @@ async function loadLocalOpenAiConfig() {
   const config = await readJsonIfPresent(LOCAL_OPENAI_CONFIG_PATH) ?? {};
   const hostedSettings = await readJsonIfPresent(LOCAL_HOSTED_SETTINGS_PATH) ?? {};
   const sharedAiConfig = hostedSettings.openAiConfig ?? hostedSettings.openAIConfig ?? hostedSettings.aiBriefConfig ?? {};
+  const productDocumentTimeoutMs =
+    config.productDocumentTimeoutMs ||
+    process.env.OPENAI_PRODUCT_DOCUMENT_TIMEOUT_MS ||
+    sharedAiConfig.productDocumentTimeoutMs ||
+    "";
 
   return {
     apiKey: config.apiKey || config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || sharedAiConfig.apiKey || "",
     model: config.businessCardModel || config.model || process.env.OPENAI_BUSINESS_CARD_MODEL || process.env.OPENAI_MODEL || sharedAiConfig.businessCardModel || sharedAiConfig.model || "",
     productDocumentModel: config.productDocumentModel || process.env.OPENAI_PRODUCT_DOCUMENT_MODEL || sharedAiConfig.productDocumentModel || "",
-    timeoutMs: config.timeoutMs || process.env.OPENAI_BUSINESS_CARD_TIMEOUT_MS || sharedAiConfig.timeoutMs || ""
+    timeoutMs: productDocumentTimeoutMs || config.timeoutMs || sharedAiConfig.timeoutMs || ""
   };
 }
 
@@ -1197,6 +1270,16 @@ function productAiLines(aiDerivedFields = [], fields = {}) {
   return lines;
 }
 
+function explicitProductFieldOverrides(text = "") {
+  const labeledFields = parseLabeledProductFields(text);
+
+  return Object.fromEntries(
+    Object.entries(labeledFields)
+      .filter(([, value]) => compactWhitespace(value))
+      .map(([key, value]) => [key, compactWhitespace(value)])
+  );
+}
+
 function uniqueStrings(values = []) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
@@ -1213,9 +1296,11 @@ function productIntakeReviewUrls(requestUrl, action = {}, host = "") {
 
 function productIntakeSubject(result = {}) {
   const fields = result.fields ?? {};
-  const label = fields.code || fields.productName || fields.productFamily || "Product document";
+  const updateLabel = result.productUpdateTarget?.label || result.productUpdateTarget?.id || "";
+  const label = updateLabel || fields.code || fields.productName || fields.productFamily || "Product document";
+  const action = result.productIntakeMode === "update" ? "update" : "intake";
 
-  return `${result.documentType || "SDS/TDS"} intake - ${label}`;
+  return `${result.documentType || "SDS/TDS"} ${action} - ${label}`;
 }
 
 function withUpdatedProductWritePlan(result = {}) {
@@ -1225,6 +1310,8 @@ function withUpdatedProductWritePlan(result = {}) {
 
   const fields = result.fields ?? {};
   const matchedProduct = result.matches?.product?.[0]?.candidate ?? null;
+  const explicitUpdateTarget = result.productUpdateTarget ?? null;
+  const explicitUpdateLabel = compactWhitespace(explicitUpdateTarget?.label || explicitUpdateTarget?.id || "");
   const matchedFamily = matchedProduct?.family || matchedProduct?.productFamily || "";
   const normalizedProductFields = {
     ...fields,
@@ -1241,7 +1328,9 @@ function withUpdatedProductWritePlan(result = {}) {
     shelfCycleRequirements,
     writePlan: {
       ...(result.writePlan ?? {}),
-      destination: matchedProduct?.code || matchedProduct?.name
+      destination: explicitUpdateLabel
+        ? `Products > Update existing product code > ${explicitUpdateLabel}`
+        : matchedProduct?.code || matchedProduct?.name
         ? `Products > ${matchedProduct.code || matchedProduct.name}`
         : "Products > New Product Code",
       fields: {
@@ -1250,23 +1339,42 @@ function withUpdatedProductWritePlan(result = {}) {
         code: normalizedProductFields.code ?? "",
         productFamily: normalizedProductFields.productFamily ?? "",
         supplier: normalizedProductFields.supplier ?? "",
+        sdsPath: normalizedProductFields.sdsPath ?? "",
         casNumber: normalizedProductFields.casNumber ?? "",
         packagingType: normalizedProductFields.packagingType ?? "",
         packaging: normalizedProductFields.packaging ?? "",
         quantityPerPackage: normalizedProductFields.quantityPerPackage ?? "",
+        unitOfMeasure: normalizedProductFields.unitOfMeasure ?? "",
         supplierType: normalizedProductFields.supplierType ?? "",
         unNumber: normalizedProductFields.unNumber ?? "",
         packingGroup: normalizedProductFields.packingGroup ?? "",
         properShippingName: normalizedProductFields.properShippingName ?? "",
         freightClass: normalizedProductFields.freightClass ?? "",
         nmfcCode: normalizedProductFields.nmfcCode ?? "",
+        pallet: normalizedProductFields.pallet ?? "",
+        packagesPerPallet: normalizedProductFields.packagesPerPallet ?? "",
+        chemicalName: normalizedProductFields.chemicalName ?? "",
+        productFamilyDescription: normalizedProductFields.productFamilyDescription ?? "",
+        aliases: normalizedProductFields.aliases ?? "",
         hazardClass: normalizedProductFields.hazardClass ?? "",
         specialDesignation: normalizedProductFields.specialDesignation ?? "",
         signalWord: normalizedProductFields.signalWord ?? "",
         hazardSymbols: normalizedProductFields.hazardSymbols ?? "",
+        physicalState: normalizedProductFields.physicalState ?? "",
+        appearance: normalizedProductFields.appearance ?? "",
+        density: normalizedProductFields.density ?? "",
+        specificGravity: normalizedProductFields.specificGravity ?? "",
+        viscosity: normalizedProductFields.viscosity ?? "",
+        flashPoint: normalizedProductFields.flashPoint ?? "",
+        boilingPoint: normalizedProductFields.boilingPoint ?? "",
+        storage: normalizedProductFields.storage ?? "",
+        shelfLife: normalizedProductFields.shelfLife ?? "",
+        recommendedUse: normalizedProductFields.recommendedUse ?? "",
+        documentDate: normalizedProductFields.documentDate ?? "",
         shelfCycleReadySummary: normalizedProductFields.shelfCycleReadySummary ?? ""
       },
       missingRequiredFields: shelfCycleRequirements.missingRequiredFields.map((field) => field.message || field.label),
+      missingReviewFields: shelfCycleRequirements.missingReviewFields.map((field) => field.message || field.label),
       readyForProductCodeCreate: shelfCycleRequirements.readyForProductCodeCreate,
       requirementSource: shelfCycleRequirements.source,
       aiDerivedFields: result.aiDerivedFields ?? [],
@@ -1274,6 +1382,7 @@ function withUpdatedProductWritePlan(result = {}) {
         documentType === "SDS"
           ? "Attach SDS in product code safety attributes"
           : "Upload TDS in the product Documents drawer",
+        explicitUpdateLabel ? `Existing product code selected for update: ${explicitUpdateLabel}` : "",
         matchedProduct ? "Existing product matched. Prefer update/document upload over duplicate create." : "",
         matchedProduct?.family || matchedProduct?.productFamily
           ? "Existing Product Family matched. Reuse family-level CAS, hazmat, GHS, and shipping identity; only vary package size, product code, supplier/package logistics, and documents that differ."
@@ -1535,6 +1644,95 @@ function createServer() {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/workflows/manual-assist") {
+        const payload = await readBody(request);
+        const runId = String(payload.runId || "").trim();
+        const command = String(payload.command || "").trim().toLowerCase();
+        const run = runId ? await loadWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, runId) : null;
+
+        if (!run) {
+          json(response, 404, { ok: false, error: "Workflow run not found." });
+          return;
+        }
+
+        if (!["pause", "resume", "cancel"].includes(command)) {
+          json(response, 400, { ok: false, error: "Use command pause, resume, or cancel." });
+          return;
+        }
+
+        if ([WORKFLOW_STATUS.SUCCEEDED, WORKFLOW_STATUS.FAILED, WORKFLOW_STATUS.CANCELLED].includes(run.status)) {
+          if (command === "cancel") {
+            json(response, 200, {
+              ok: true,
+              command,
+              run,
+              message: `Workflow is already ${run.status}.`
+            });
+            return;
+          }
+
+          json(response, 409, { ok: false, error: `Workflow is already ${run.status}.` });
+          return;
+        }
+
+        const timestamp = new Date().toISOString();
+        const stepId = run.currentStepId || "shelfcycle_submit";
+
+        if (command === "cancel") {
+          activeShelfCycleAbortControllers.get(runId)?.abort();
+          const cancelled = await cancelWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, runId, {
+            stepId,
+            message: "ShelfCycle agent run cancelled by user. If the ShelfCycle browser is still open, close it manually or leave it idle."
+          });
+          json(response, 200, {
+            ok: true,
+            command,
+            run: cancelled ?? await loadWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, runId)
+          });
+          return;
+        }
+
+        const previousAssist = run.artifacts?.manualAssist ?? {};
+        const manualAssist = command === "pause"
+          ? {
+              ...previousAssist,
+              requested: true,
+              active: false,
+              requestedAt: previousAssist.requestedAt || timestamp,
+              requestedBy: "user",
+              message: "Manual assist requested. The agent will pause at the next safe ShelfCycle checkpoint."
+            }
+          : {
+              ...previousAssist,
+              requested: false,
+              active: false,
+              resumedAt: timestamp,
+              message: ""
+            };
+        const updated = await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, runId, stepId, {
+          status: command === "pause" ? WORKFLOW_STEP_STATUS.WAITING : WORKFLOW_STEP_STATUS.RUNNING,
+          detail: command === "pause"
+            ? "Manual assist requested. Waiting for the agent to reach a safe pause point."
+            : "Manual assist resumed. The agent can continue.",
+          actionState: command === "pause" ? ACTION_STATE.MANUAL_ASSIST : ACTION_STATE.RUNNING,
+          artifacts: {
+            manualAssist
+          }
+        });
+
+        await appendWorkflowLog(LOCAL_WORKFLOW_RUNS_DIR, runId, {
+          message: command === "pause"
+            ? "Manual assist requested by user."
+            : "Manual assist resumed by user."
+        }).catch(() => {});
+        json(response, 200, {
+          ok: true,
+          command,
+          run: updated ?? await loadWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, runId)
+        });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/daily-brief/status") {
         json(response, 200, await getDailyBriefStatus());
         return;
@@ -1670,7 +1868,7 @@ function createServer() {
         }
 
         const textQuality = productDocumentTextQuality(text);
-        const forceAi = payload.forceAi !== false && shouldRunProductDocumentPdfAi({
+        const forceAi = payload.forceAi === true || payload.forceAi !== false || shouldRunProductDocumentPdfAi({
           text,
           forceAi: payload.forceAi === true
         });
@@ -1703,11 +1901,18 @@ function createServer() {
         const finalQuality = productDocumentTextQuality(text);
         const usefulFieldsFound = hasUsefulProductDocumentFields(aiResult.fields);
         const responseText = finalQuality.readable ? text : "";
+        const aiWarnings = (aiResult.warnings ?? []).filter((warning) => {
+          if (!responseText && !usefulFieldsFound) {
+            return true;
+          }
+
+          return !/^AI PDF extraction (?:failed|timed out|was aborted)/i.test(String(warning || "").trim());
+        });
 
         const combinedWarnings = [
           ...warnings,
           textQuality.readable || responseText || usefulFieldsFound ? "" : textQuality.reason,
-          ...(aiResult.warnings ?? []),
+          ...aiWarnings,
           responseText || usefulFieldsFound ? "" : "No readable PDF text or structured ShelfCycle fields were found. If this is a scanned PDF, confirm OpenAI vision/document extraction is configured."
         ].filter(Boolean);
 
@@ -1727,6 +1932,44 @@ function createServer() {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/product-document/research-field") {
+        const payload = await readBody(request);
+        const field = String(payload.field || "").trim();
+        const fields = payload.fields ?? {};
+        const currentValue = String(payload.currentValue || fields[field] || "").trim();
+        const mode = String(payload.mode || "").trim();
+        const text = [
+          payload.text || "",
+          ...(payload.files ?? []).map((file) => [
+            file.fileName || file.name || "",
+            file.fields ? JSON.stringify(file.fields) : "",
+            file.extractedText || file.text || ""
+          ].filter(Boolean).join("\n"))
+        ].filter(Boolean).join("\n\n");
+
+        if (!field) {
+          json(response, 400, {
+            ok: false,
+            field: "",
+            value: "",
+            warnings: ["Missing product field to research."]
+          });
+          return;
+        }
+
+        const research = await researchProductDocumentFieldWithAi({
+          field,
+          fields,
+          currentValue,
+          mode,
+          text,
+          config: await loadLocalOpenAiConfig()
+        });
+
+        json(response, research.ok ? 200 : 422, research);
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/analyze") {
         const payload = await readBody(request);
         const workflowRunId = `intake-${new Date().toISOString().replace(/[:.]/g, "-")}`;
@@ -1737,7 +1980,9 @@ function createServer() {
           title: payload.workflow === "new_product" ? "SDS/TDS product intake" : "ClearEdge intake analysis",
           metadata: {
             requestedWorkflow: payload.workflow || "auto",
-            inputLength: String(payload.text || "").length
+            inputLength: String(payload.text || "").length,
+            productIntakeMode: payload.productIntakeMode || "",
+            productUpdateTarget: payload.productUpdateTarget?.label || payload.productUpdateTarget?.id || ""
           },
           steps: [
             { id: "receive_input", label: "Receive pasted or uploaded input", status: WORKFLOW_STEP_STATUS.SUCCEEDED },
@@ -1758,6 +2003,7 @@ function createServer() {
           });
 
           if (result.workflow === "new_product") {
+            const explicitFields = explicitProductFieldOverrides(inputBody);
             const openAiConfig = await loadLocalOpenAiConfig();
             const productAiConfig = resolveProductDocumentAiConfig(openAiConfig);
             const productDocument = payload.productDocument ?? {};
@@ -1790,7 +2036,8 @@ function createServer() {
                 ...rerun,
                 fields: {
                   ...(rerun.fields ?? {}),
-                  ...(refinedResult.fields ?? {})
+                  ...(refinedResult.fields ?? {}),
+                  ...explicitFields
                 },
                 aiDerivedFields: refinedResult.aiDerivedFields ?? [],
                 missingShelfCycleFields: refinedResult.missingShelfCycleFields ?? [],
@@ -1801,10 +2048,18 @@ function createServer() {
                 ])
               };
             } else {
-              result = refinedResult;
+              result = {
+                ...refinedResult,
+                fields: {
+                  ...(refinedResult.fields ?? {}),
+                  ...explicitFields
+                }
+              };
             }
 
             result = sanitizeProductDocumentResultForSource(result, inputBody);
+            result.productIntakeMode = payload.productIntakeMode === "update" ? "update" : "create";
+            result.productUpdateTarget = payload.productIntakeMode === "update" ? (payload.productUpdateTarget ?? null) : null;
             result = withUpdatedProductWritePlan(result);
           }
 
@@ -2170,6 +2425,7 @@ function createServer() {
           selectedTarget: payload.selectedTarget ?? null,
           fields: payload.fields ?? {}
         });
+        const requestedDryRun = payload.dryRun === true || payload.fields?.dryRun === true;
 
         if (!proposedAction) {
           await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "Requested ShelfCycle action was not found on this review packet.", {
@@ -2182,6 +2438,35 @@ function createServer() {
             workflowRunId,
             code: SHELFCYCLE_ERROR_CODES.INVALID_REVIEW_ACTION,
             message: "Requested ShelfCycle action was not found on this review packet."
+          }));
+          return;
+        }
+
+        if (requestedDryRun) {
+          proposedAction.dryRun = true;
+          proposedAction.fieldValues = {
+            ...(proposedAction.fieldValues ?? {}),
+            dryRun: true
+          };
+        }
+
+        const missingRequiredFields = missingRequiredFieldValues(proposedAction);
+
+        if (missingRequiredFields.length) {
+          const missingLabels = missingRequiredFields.map((item) => item.fieldName).join(", ");
+          const message = `Missing required ShelfCycle field(s): ${missingLabels}.`;
+
+          await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, message, {
+            stepId: "validate_action"
+          }).catch(() => {});
+          json(response, 400, errorResponse({
+            reviewActionId,
+            actionId,
+            actionType,
+            workflowRunId,
+            code: SHELFCYCLE_ERROR_CODES.MISSING_REQUIRED_FIELDS,
+            message,
+            warnings: proposedAction.warnings
           }));
           return;
         }
@@ -2266,6 +2551,54 @@ function createServer() {
           return;
         }
 
+        if (proposedAction.requiredFields?.includes("fields.sdsPath") && !proposedAction.fieldValues?.sdsPath) {
+          await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "A local SDS file path is required before submitting this ShelfCycle product action.", {
+            stepId: "validate_action"
+          }).catch(() => {});
+          json(response, 400, errorResponse({
+            reviewActionId,
+            actionId,
+            actionType,
+            workflowRunId,
+            code: SHELFCYCLE_ERROR_CODES.MISSING_REQUIRED_FIELDS,
+            message: "Select a local SDS file path before submitting this ShelfCycle product action.",
+            warnings: proposedAction.warnings
+          }));
+          return;
+        }
+
+        if (proposedAction.requiredFields?.includes("approval.packageSize") && payload.approvals?.packageSize !== true) {
+          await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "Approve the package size before creating this ShelfCycle product code.", {
+            stepId: "validate_action"
+          }).catch(() => {});
+          json(response, 400, errorResponse({
+            reviewActionId,
+            actionId,
+            actionType,
+            workflowRunId,
+            code: SHELFCYCLE_ERROR_CODES.APPROVAL_REQUIRED,
+            message: "Approve the package size before creating this ShelfCycle product code.",
+            warnings: proposedAction.warnings
+          }));
+          return;
+        }
+
+        if (proposedAction.requiredFields?.includes("approval.productFamily") && payload.approvals?.productFamily !== true) {
+          await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "Approve the product family before creating this ShelfCycle product workflow.", {
+            stepId: "validate_action"
+          }).catch(() => {});
+          json(response, 400, errorResponse({
+            reviewActionId,
+            actionId,
+            actionType,
+            workflowRunId,
+            code: SHELFCYCLE_ERROR_CODES.APPROVAL_REQUIRED,
+            message: "Approve the product family before creating this ShelfCycle product workflow.",
+            warnings: proposedAction.warnings
+          }));
+          return;
+        }
+
         if (!proposedAction.executable) {
           await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, proposedAction.warnings[0] || "This ShelfCycle action is not executable yet.", {
             stepId: "validate_action"
@@ -2305,58 +2638,40 @@ function createServer() {
             });
           }
 
-          await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "shelfcycle_submit", {
-            status: WORKFLOW_STEP_STATUS.RUNNING,
-            detail: `Submitting ${proposedAction.displayLabel || proposedAction.actionType} to ShelfCycle.`
-          }).catch(() => {});
-          const result = await executeApprovedShelfCycleAction({
-            reviewAction: rawAction,
-            proposedAction,
-            automationRunnerPath: AUTOMATION_RUNNER_PATH,
-            cwd: projectRoot
-          });
-          await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "shelfcycle_submit", {
-            status: WORKFLOW_STEP_STATUS.SUCCEEDED,
-            detail: result.message || "ShelfCycle action submitted.",
-            runMetrics: {
-              submittedActions: 1,
-              mentionLinksAttempted: result.mentionResults?.length ?? 0,
-              mentionLinksCreated: (result.mentionResults ?? []).filter((item) => item.status === "linked").length
-            },
-            artifacts: {
-              shelfcycleUrl: result.shelfcycleUrl || "",
-              mentionResults: result.mentionResults ?? []
-            }
-          }).catch(() => {});
-          await updateWorkflowStep(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, "result_log", {
-            status: WORKFLOW_STEP_STATUS.SUCCEEDED,
-            detail: "ShelfCycle submission result recorded.",
-            actionState: ACTION_STATE.SUBMITTED
-          }).catch(() => {});
-          await finishWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, {
-            metrics: {
-              submittedActions: 1,
-              failedActions: 0
-            },
-            artifacts: {
-              shelfcycleUrl: result.shelfcycleUrl || "",
-              mentionResults: result.mentionResults ?? []
-            }
-          }).catch(() => {});
-          json(response, 200, {
-            ok: true,
+          if (payload.async === true) {
+            await appendWorkflowLog(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, {
+              message: "ShelfCycle browser automation queued from approved review action."
+            }).catch(() => {});
+            runApprovedShelfCycleSubmission({
+              reviewActionId,
+              actionId,
+              actionType,
+              workflowRunId,
+              rawAction,
+              proposedAction
+            }).catch(() => {});
+            json(response, 202, {
+              ok: true,
+              accepted: true,
+              reviewActionId,
+              actionId,
+              actionType,
+              workflowRunId,
+              statusUrl: `/api/workflows/run?id=${encodeURIComponent(workflowRunId)}`,
+              message: "ShelfCycle automation started. Track this workflow run for live progress."
+            });
+            return;
+          }
+
+          json(response, 200, await runApprovedShelfCycleSubmission({
             reviewActionId,
             actionId,
             actionType,
             workflowRunId,
-            target: proposedAction.selectedTarget,
-            mentionResults: result.mentionResults ?? [],
-            result
-          });
+            rawAction,
+            proposedAction
+          }));
         } catch (error) {
-          await failWorkflowRun(LOCAL_WORKFLOW_RUNS_DIR, workflowRunId, error, {
-            stepId: "shelfcycle_submit"
-          }).catch(() => {});
           json(response, 500, errorResponse({
             reviewActionId,
             actionId,

@@ -209,8 +209,13 @@ function listCardHtml(title = "", items = [], tone = "") {
   `;
 }
 
-function actionLabels(action = {}) {
+function visibleApprovalActions(action = {}) {
   return (action.proposedActions ?? [])
+    .filter((item) => item.actionType !== "product_family_create_or_update");
+}
+
+function actionLabels(action = {}) {
+  return visibleApprovalActions(action)
     .map((item) => {
       const status = item.executable ? "ready for approval" : "preview only";
       return `${item.displayLabel || actionButtonLabel(item)} (${status})`;
@@ -490,6 +495,7 @@ function actionButtonLabel(proposedAction = {}) {
     customer_create: "Create Customer in ShelfCycle",
     supplier_create: "Create Supplier in ShelfCycle",
     contact_create: "Create Contact in ShelfCycle",
+    location_create: "Create Location in ShelfCycle",
     pricing_record: "Add Pricing to ShelfCycle",
     product_create_or_update: "Create Product in ShelfCycle",
     product_document_followup: "Upload Product Document",
@@ -510,14 +516,45 @@ function localSubmitUrl(section = "packet", proposedAction = executableAction())
   return url.href;
 }
 
-function shelfField(label, value = "", { multiline = false } = {}) {
+function requiredMarkerText(required = false) {
+  if (!required) {
+    return "";
+  }
+
+  return typeof required === "string" ? required : "required";
+}
+
+function requiredFieldMarkerFor(action = null, key = "") {
+  const required = action?.requiredFields ?? [];
+
+  if (required.includes(`fields.${key}`)) {
+    return "required";
+  }
+
+  if (required.includes("fields.name_or_email") && ["name", "email"].includes(key)) {
+    return "name or email required";
+  }
+
+  if (required.includes("fields.productCode_or_productName") && ["productCode", "productName"].includes(key)) {
+    return "product code or name required";
+  }
+
+  if (required.includes("fields.price") && ["price", "pricePerUnit", "pricePerPackage"].includes(key)) {
+    return "price required";
+  }
+
+  return "";
+}
+
+function shelfField(label, value = "", { multiline = false, required = false } = {}) {
+  const markerText = requiredMarkerText(required);
   const control = multiline
     ? `<textarea readonly>${escapeHtml(value || "")}</textarea>`
     : `<input type="text" readonly value="${escapeHtml(value || "")}" />`;
 
   return `
     <label>
-      <span>${escapeHtml(label)}</span>
+      <span>${escapeHtml(label)}${markerText ? ` <strong class="required-marker">${escapeHtml(markerText)}</strong>` : ""}</span>
       ${control}
     </label>
   `;
@@ -710,13 +747,16 @@ function parseCandidateFields(fields = []) {
   return parsed;
 }
 
-function genericFieldsHtml(fields = {}, labels = []) {
+function genericFieldsHtml(fields = {}, labels = [], { action = null } = {}) {
   const keys = labels.length
     ? labels
     : Object.keys(fields).filter((key) => !Array.isArray(fields[key]) && fields[key] !== null && typeof fields[key] !== "object");
 
   return keys
-    .map((key) => shelfField(fieldLabel(key), fields[key] || "", { multiline: key === "note" || String(fields[key] || "").length > 90 }))
+    .map((key) => shelfField(fieldLabel(key), fields[key] || "", {
+      multiline: key === "note" || String(fields[key] || "").length > 90,
+      required: requiredFieldMarkerFor(action, key)
+    }))
     .join("");
 }
 
@@ -755,7 +795,7 @@ function proposedActionPreviewCards(action = {}) {
             <span class="status-pill ${item.executable ? "status-ready" : "status-review"}">${item.executable ? "Ready for approval" : "Needs review"}</span>
           </div>
           <div class="shelfcycle-field-grid">
-            ${genericFieldsHtml(fields, labels)}
+            ${genericFieldsHtml(fields, labels, { action: item })}
           </div>
           ${warnings}
           ${actionLink ? `<div class="shelfcycle-form-actions">${actionLink}</div>` : ""}
@@ -989,7 +1029,7 @@ function updateShelfCycleLinks() {
 }
 
 function renderAvailableActions(action = {}) {
-  const proposedActions = action.proposedActions ?? [];
+  const proposedActions = visibleApprovalActions(action);
 
   if (!proposedActions.length) {
     availableActionsEl.innerHTML = '<span class="pill muted-pill">No manual actions detected.</span>';

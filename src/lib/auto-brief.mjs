@@ -109,7 +109,21 @@ export async function runAutoBrief({
     until,
     maxMessages,
     query,
-    config: gmailConfig
+    config: gmailConfig,
+    onProgress: async ({ threadCount = 0, fetchedThreads = 0, acceptedThreads = 0 } = {}) => {
+      if (!threadCount) {
+        await progress("gmail_fetch", {
+          label: "Gmail search returned no matching threads",
+          emailThreads: 0
+        });
+        return;
+      }
+
+      await progress("gmail_fetch", {
+        label: `Fetching Gmail threads ${fetchedThreads}/${threadCount}`,
+        emailThreads: acceptedThreads || fetchedThreads
+      });
+    }
   });
   await progress("workspace_artifacts", {
     label: "Checking Gmail attachments and Workspace links",

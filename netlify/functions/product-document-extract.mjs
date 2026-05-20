@@ -97,7 +97,7 @@ export default async (req) => {
     };
 
     const textQuality = productDocumentTextQuality(text);
-    const forceAi = payload.forceAi !== false && shouldRunProductDocumentPdfAi({
+    const forceAi = payload.forceAi === true || payload.forceAi !== false || shouldRunProductDocumentPdfAi({
       text,
       forceAi: payload.forceAi === true
     });

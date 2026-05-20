@@ -18,6 +18,14 @@ const FAMILY_IDENTIFIER_FIELDS = [
   { key: "signalWord", label: "GHS Signal Word" },
   { key: "hazardSymbols", label: "Hazard Symbols" }
 ];
+const SDS_TRANSPORT_WARNING_FIELDS = [
+  { key: "unNumber", label: "UN/NA Number" },
+  { key: "hazardClass", label: "Hazard Class" },
+  { key: "packingGroup", label: "Packing Group" },
+  { key: "properShippingName", label: "Proper Shipping Name" },
+  { key: "signalWord", label: "GHS Signal Word" },
+  { key: "hazardSymbols", label: "Hazard Symbols" }
+];
 
 export function productDocumentTextQuality(text = "") {
   const clean = compactWhitespace(text);
@@ -40,6 +48,7 @@ export function productDocumentTextQuality(text = "") {
   const replacementChars = clean.match(/\uFFFD/g) ?? [];
   const nonAsciiRatio = length ? nonAscii.length / length : 1;
   const wordCount = alphaWords.length;
+  const usefulWordCount = alphaWords.filter((word) => word.length >= 5).length;
 
   if (replacementChars.length > 3) {
     return {
@@ -85,6 +94,16 @@ export function productDocumentTextQuality(text = "") {
     return {
       readable: false,
       reason: "PDF text extraction did not contain enough readable words.",
+      length,
+      wordCount,
+      nonAsciiRatio
+    };
+  }
+
+  if (!hasExplicitProductField && businessTerms.length < 2 && usefulWordCount < 20) {
+    return {
+      readable: false,
+      reason: "PDF text extraction did not contain enough SDS/TDS terms for reliable parsing.",
       length,
       wordCount,
       nonAsciiRatio
@@ -184,6 +203,16 @@ export function sanitizeProductDocumentResultForSource(result = {}, sourceText =
   const codeComparable = normalizedComparable(code);
   const productNameComparable = normalizedComparable(fields.productName);
   const productFamilyComparable = normalizedComparable(fields.productFamily);
+  const hasGeneratedPackageCode = Boolean(
+    code &&
+    compactWhitespace(fields.packaging) &&
+    compactWhitespace(fields.quantityPerPackage) &&
+    (result.aiDerivedFields ?? []).some((item) =>
+      normalizedComparable(item?.field) === "code" &&
+      normalizedComparable(item?.value) === codeComparable &&
+      /\bgenerated\b.*\bpackage\b|\bpackage\b.*\bsize\b/i.test(compactWhitespace(item?.reason))
+    )
+  );
   const invalidCodeValue =
     /\bnot\s+(?:given|provided|specified|available|applicable)\b/i.test(code) ||
     /\b(?:FreightClass|Freight Class|Pallet|PackagesPerPallet|Packages Per Pallet|DocumentDate|Document Date|DocumentType|Document Type)\s*:/i.test(code) ||
@@ -193,7 +222,7 @@ export function sanitizeProductDocumentResultForSource(result = {}, sourceText =
     code &&
     (
       invalidCodeValue ||
-      !hasExplicitProductCodeSource(sourceText) ||
+      (!hasExplicitProductCodeSource(sourceText) && !hasGeneratedPackageCode) ||
       codeComparable === productNameComparable ||
       codeComparable === productFamilyComparable
     )
@@ -237,6 +266,36 @@ export function filterResolvedProductDocumentWarnings(warnings = [], fields = {}
       }
 
       output.push(`Missing family-level identifiers: ${missing.join(", ")}`);
+      continue;
+    }
+
+    if (/\b(?:technical data sheet|TDS)\b.*\bnot\s+(?:an?\s+)?SDS\b/i.test(clean) || /\bSDS\b.*\bneeded\b/i.test(clean)) {
+      const missing = FAMILY_IDENTIFIER_FIELDS
+        .filter((item) => !compactWhitespace(fields[item.key]))
+        .map((item) => item.label);
+
+      if (!missing.length) {
+        continue;
+      }
+
+      if (output.some((item) => /^Missing family-level identifiers:/i.test(item))) {
+        continue;
+      }
+
+      output.push(`SDS still needed for unresolved fields: ${missing.join(", ")}`);
+      continue;
+    }
+
+    if (/\b(?:section\s*14|transport\s+information|Missing SDS transport info)\b/i.test(clean) && /\bmissing|not\s+(?:listed|provided|available)|cannot\s+be\s+extracted/i.test(clean)) {
+      const missing = SDS_TRANSPORT_WARNING_FIELDS
+        .filter((item) => !compactWhitespace(fields[item.key]))
+        .map((item) => item.label);
+
+      if (!missing.length) {
+        continue;
+      }
+
+      output.push(`SDS transport/GHS fields still unresolved: ${missing.join(", ")}`);
       continue;
     }
 

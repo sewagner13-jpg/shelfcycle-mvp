@@ -9,6 +9,7 @@ import { loadMessagesMemoryConfig } from "../../src/lib/messages-memory-config.m
 import {
   DAILY_BRIEF_WORKFLOW_STEPS,
   createWorkflowRun,
+  dailyBriefStepIdForPhase,
   failWorkflowRun,
   finishWorkflowRun,
   updateDailyBriefWorkflowFromPhase
@@ -441,8 +442,18 @@ async function main() {
     })
   };
   let releaseLock = null;
+  let latestProgressPhase = "starting";
+  let latestProgressLabel = "";
 
   const writeProgress = async (patch = {}) => {
+    if (patch.phase) {
+      latestProgressPhase = patch.phase;
+    }
+
+    if (patch.label) {
+      latestProgressLabel = patch.label;
+    }
+
     if (patch.phase && !["finished", "failed"].includes(patch.phase) && patch.state !== "finished" && patch.state !== "failed") {
       await updateDailyBriefWorkflowFromPhase(workflowRunsDir, workflowRunId, patch.phase, patch).catch(() => {});
     }
@@ -696,16 +707,21 @@ async function main() {
     );
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } catch (error) {
+    const failedPhase = latestProgressPhase || "config";
+    const failedStepId = dailyBriefStepIdForPhase(failedPhase) || "config";
     const summary = {
       ok: false,
       generatedAt: new Date().toISOString(),
+      phase: failedPhase,
+      stepId: failedStepId,
+      label: latestProgressLabel,
       error: error instanceof Error ? error.message : String(error)
     };
 
     await writeFile(runSummaryPath, JSON.stringify(summary, null, 2), "utf8").catch(() => {});
     await writeFile(latestRunSummaryPath, JSON.stringify(summary, null, 2), "utf8").catch(() => {});
     await failWorkflowRun(workflowRunsDir, workflowRunId, summary.error, {
-      stepId: "email_send"
+      stepId: failedStepId
     }).catch(() => {});
     await writeProgress({
       ok: false,

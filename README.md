@@ -76,6 +76,35 @@ Local approval page:
 http://localhost:4318/review-submit.html
 ```
 
+## Always-On Local Runner
+
+The production Netlify site cannot directly start a process on this Mac. To make hosted review links and ShelfCycle approval actions work reliably, install the local web runner as a macOS LaunchAgent. It starts at login and automatically restarts `localhost:4318` if it stops.
+
+Install or refresh the LaunchAgent:
+
+```bash
+cd /Users/seanwagner/Documents/Playground/shelfcycle-mvp
+node apps/local-runner/install-mac-launchd.mjs
+```
+
+Check status:
+
+```bash
+cd /Users/seanwagner/Documents/Playground/shelfcycle-mvp
+node apps/local-runner/install-mac-launchd.mjs --status
+```
+
+Restart manually:
+
+```bash
+cd /Users/seanwagner/Documents/Playground/shelfcycle-mvp
+node apps/local-runner/install-mac-launchd.mjs --restart
+```
+
+The installer writes:
+- LaunchAgent: `/Users/seanwagner/Library/LaunchAgents/com.clearedge.shelfcycle-mvp.local-runner.plist`
+- logs: `/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/local-runner/`
+
 ## Local Netlify CLI
 
 This repo now includes a project-local Netlify CLI wrapper so this machine does not depend on a globally installed `npm` or `netlify` binary.

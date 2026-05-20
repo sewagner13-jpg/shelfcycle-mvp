@@ -47,6 +47,93 @@ test("parseProductDocument identifies TDS and shipping fields", () => {
   assert.equal(result.attachmentPlan.target, "product documents drawer");
 });
 
+test("parseProductDocument maps pasted ShelfCycle product sections into fields", () => {
+  const result = parseProductDocument(`
+    === Make or update Product Family ===
+    Product Family: Epoxy Reactive Diluents
+    Chemical Name: Neopentyl glycol diglycidyl ether
+    Product Family Description: Low viscosity aliphatic glycidyl ether functional monomer used as a reactive diluent.
+    Aliases: NPGDGE; Heloxy WC68
+    CAS Number: 17557-23-2
+    Recommended Use: Reactive diluent for epoxy resins.
+
+    === Make or update Product Codes / Packages ===
+    Product Code: WB-NPGDGE
+    Product Name: Neopentyl glycol diglycidyl ether
+    Packaging Type: Variable
+    Packaging: Drum / IBC / ISO Tank
+    Quantity per Package: 200
+    Unit of Measure: kg
+    Supplier Type: Fixed
+    Supplier: Winbond Materials Co., Ltd
+    Document Type: SDS
+    SDS Local File Path:
+
+    === Shipping / Safety / Freight ===
+    UN/NA Number: Not Applicable
+    Packing Group: NOT REGULATED
+    Hazard Class: Not regulated
+    Special Designation: None
+    Proper Shipping Name: Not regulated (NONH for all modes of transport)
+    GHS Signal Word: Warning
+    Hazard Symbols: Exclamation Mark (GHS07)
+    NMFC Code: 46030
+    Freight Class: 55
+    Pallet: Standard hardwood
+    Packages per Pallet: 4
+
+    === Physical / Storage ===
+    Physical State: Liquid
+    Appearance: Clear transparent liquid
+    Density: 1.04 g/ml @ 25°C
+    Specific Gravity: 1.04
+    Viscosity: 15-25 mPa·s @ 25°C
+    Flash Point: 235.4°F (113°C)
+    Boiling Point: 103-107°C @ 1mmHg
+    Storage: Store in a cool, dry, dark location.
+    Shelf Life: 12 Months
+    Document Date: 2023-01-01
+  `);
+
+  assert.equal(result.documentType, "SDS");
+  assert.equal(result.fields.productFamily, "Epoxy Reactive Diluents");
+  assert.equal(result.fields.chemicalName, "Neopentyl glycol diglycidyl ether");
+  assert.equal(result.fields.productFamilyDescription, "Low viscosity aliphatic glycidyl ether functional monomer used as a reactive diluent.");
+  assert.equal(result.fields.aliases, "NPGDGE; Heloxy WC68");
+  assert.equal(result.fields.casNumber, "17557-23-2");
+  assert.equal(result.fields.recommendedUse, "Reactive diluent for epoxy resins.");
+  assert.equal(result.fields.code, "WB-NPGDGE");
+  assert.equal(result.fields.productName, "Neopentyl glycol diglycidyl ether");
+  assert.equal(result.fields.packagingType, "Variable");
+  assert.equal(result.fields.packaging, "Drum / IBC / ISO Tank");
+  assert.equal(result.fields.quantityPerPackage, "200");
+  assert.equal(result.fields.unitOfMeasure, "kg");
+  assert.equal(result.fields.supplierType, "Fixed");
+  assert.equal(result.fields.supplier, "Winbond Materials Co., Ltd");
+  assert.equal(result.fields.documentType, "SDS");
+  assert.equal(result.fields.unNumber, "Not Applicable");
+  assert.equal(result.fields.packingGroup, "NOT REGULATED");
+  assert.equal(result.fields.hazardClass, "Not regulated");
+  assert.equal(result.fields.specialDesignation, "None");
+  assert.equal(result.fields.properShippingName, "Not regulated (NONH for all modes of transport)");
+  assert.equal(result.fields.signalWord, "Warning");
+  assert.equal(result.fields.hazardSymbols, "Exclamation Mark (GHS07)");
+  assert.equal(result.fields.nmfcCode, "46030");
+  assert.equal(result.fields.freightClass, "55");
+  assert.equal(result.fields.pallet, "Standard hardwood");
+  assert.equal(result.fields.packagesPerPallet, "4");
+  assert.equal(result.fields.physicalState, "Liquid");
+  assert.equal(result.fields.appearance, "Clear transparent liquid");
+  assert.equal(result.fields.density, "1.04 g/ml @ 25°C");
+  assert.equal(result.fields.specificGravity, "1.04");
+  assert.equal(result.fields.viscosity, "15-25 mPa·s @ 25°C");
+  assert.equal(result.fields.flashPoint, "235.4°F (113°C)");
+  assert.equal(result.fields.boilingPoint, "103-107°C @ 1mmHg");
+  assert.equal(result.fields.storage, "Store in a cool, dry, dark location.");
+  assert.equal(result.fields.shelfLife, "12 Months");
+  assert.equal(result.fields.documentDate, "2023-01-01");
+});
+
 test("parseEmailThread extracts subject and suggested contacts", () => {
   const result = parseEmailThread(
     `

@@ -657,6 +657,55 @@ test("business-card supplier candidate offers searchable supplier update without
   assert.equal(supplierUpdate.fieldValues.website, "https://www.whchem.com");
 });
 
+test("business-card customer prospect does not manufacture a supplier update action", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "business_card",
+    relationship: {
+      relationship: "customer",
+      subtype: "prospect"
+    },
+    fields: {
+      personName: "Gary Kessler",
+      companyName: "Kessler Chemical",
+      email: "gary@kesslerchemical.com",
+      phone: "610-758-9602",
+      website: "www.kesslerchemical.com",
+      relationshipType: "customer_prospect"
+    },
+    suggestedCreates: [
+      {
+        type: "customer",
+        name: "Kessler Chemical",
+        email: "gary@kesslerchemical.com",
+        phone: "610-758-9602",
+        website: "www.kesslerchemical.com",
+        prospect: true
+      },
+      {
+        type: "contact",
+        name: "Gary Kessler",
+        email: "gary@kesslerchemical.com",
+        companyName: "Kessler Chemical",
+        companyType: "Customer"
+      }
+    ],
+    matches: {
+      customer: [],
+      supplier: [],
+      contacts: []
+    }
+  }));
+
+  assert.equal(actions.some((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE), false);
+  const customer = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.CUSTOMER_CREATE);
+
+  assert.equal(customer?.executable, true);
+  assert.equal(customer.fieldValues.name, "Kessler Chemical");
+  assert.equal(customer.fieldValues.website, "www.kesslerchemical.com");
+  assert.equal(customer.fieldValues.email, "");
+  assert.equal(customer.fieldValues.phoneNumber, "");
+});
+
 test("new supplier workflow blocks create when a matched ShelfCycle supplier contact already exists", () => {
   const actions = collectProposedActions(baseReviewAction({
     workflow: "new_supplier",
@@ -865,6 +914,124 @@ test("suggested supplier contacts block when ShelfCycle-required title is missin
   assert.ok(contact.requiredFields.includes("fields.title"));
 });
 
+test("business-card customer address proposes location after a customer target is selected", () => {
+  const reviewAction = baseReviewAction({
+    workflow: "business_card",
+    fields: {
+      companyName: "Surface Koatings",
+      personName: "Erin Christos",
+      email: "erin@surfacekoatings.com",
+      relationshipSuggestion: "customer_prospect",
+      streetAddress: "123 Coatings Way",
+      city: "Newberry",
+      stateRegion: "SC",
+      zip: "29108",
+      country: "United States"
+    },
+    matches: {
+      customer: [],
+      supplier: []
+    },
+    suggestedCreates: [
+      { type: "customer", name: "Surface Koatings" },
+      {
+        type: "contact",
+        name: "Erin Christos",
+        email: "erin@surfacekoatings.com",
+        companyName: "Surface Koatings",
+        companyType: "Customer"
+      }
+    ]
+  });
+  const blocked = collectProposedActions(reviewAction).find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE);
+  const selected = collectProposedActions(reviewAction, {
+    selectedTarget: {
+      kind: "customer",
+      id: "customer-123",
+      label: "Surface Koatings"
+    }
+  }).find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE);
+
+  assert.equal(blocked.executable, false);
+  assert.ok(blocked.warnings.includes("Create or select a ShelfCycle customer before creating this location."));
+  assert.equal(blocked.fieldValues.name, "Surface Koatings");
+  assert.deepEqual(blocked.requiredFields, ["selectedTarget.label", "fields.name"]);
+  assert.equal(selected.executable, true);
+  assert.equal(selected.selectedTarget.id, "customer-123");
+  assert.equal(selected.fieldValues.companyType, "customer");
+  assert.equal(selected.fieldValues.streetAddress, "123 Coatings Way");
+});
+
+test("business-card supplier address proposes executable supplier location for an existing supplier target", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "business_card",
+    fields: {
+      companyName: "Kessler Chemical",
+      personName: "Pat Kessler",
+      title: "Sales",
+      email: "pat@kessler.example",
+      relationshipSuggestion: "supplier",
+      streetAddress: "1 Supplier Road",
+      city: "Charlotte",
+      stateRegion: "NC",
+      zip: "28202",
+      country: "United States"
+    },
+    relationship: {
+      relationship: "supplier"
+    },
+    matches: {
+      customer: [],
+      supplier: [
+        {
+          score: 0.96,
+          candidate: {
+            id: "supplier-123",
+            name: "Kessler Chemical"
+          }
+        }
+      ]
+    },
+    suggestedCreates: [
+      {
+        type: "contact",
+        name: "Pat Kessler",
+        title: "Sales",
+        email: "pat@kessler.example",
+        companyName: "Kessler Chemical",
+        companyType: "Supplier"
+      }
+    ]
+  }));
+  const location = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE);
+
+  assert.equal(location.executable, true);
+  assert.equal(location.selectedTarget.kind, "supplier");
+  assert.equal(location.selectedTarget.id, "supplier-123");
+  assert.equal(location.fieldValues.companyType, "supplier");
+  assert.equal(location.fieldValues.name, "Kessler Chemical");
+});
+
+test("business-card without address does not propose a location action", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "business_card",
+    fields: {
+      companyName: "No Address LLC",
+      personName: "Casey Smith",
+      email: "casey@example.com"
+    },
+    matches: {
+      customer: [],
+      supplier: []
+    },
+    suggestedCreates: [
+      { type: "customer", name: "No Address LLC" }
+    ]
+  }));
+
+  assert.equal(actions.some((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE), false);
+});
+
 test("product create/update proposes update for an existing ShelfCycle product match", () => {
   const actions = collectProposedActions(baseReviewAction({
     briefAi: {
@@ -896,10 +1063,43 @@ test("product create/update proposes update for an existing ShelfCycle product m
   const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
 
   assert.equal(product.executable, true);
-  assert.equal(product.displayLabel, "Update existing product in ShelfCycle");
+  assert.equal(product.displayLabel, "Update existing product code in ShelfCycle");
   assert.equal(product.selectedTarget.id, "product-123");
   assert.equal(product.fieldValues.mode, "update");
   assert.equal(product.duplicateCandidates[0].label, "RUCOLAC B-591");
+});
+
+test("product intake can update an explicitly selected existing ShelfCycle product", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    productIntakeMode: "update",
+    productUpdateTarget: {
+      kind: "product",
+      label: "RUCOLAC B-591",
+      confidence: 0.94
+    },
+    fields: {
+      code: "RUCOLAC B-591",
+      productFamily: "RUCOLAC B-591",
+      packagingType: "Fixed",
+      packaging: "Drum (lb)",
+      quantityPerPackage: "529",
+      supplierType: "Variable",
+      casNumber: "98-00-0"
+    },
+    matches: {
+      customer: [],
+      product: []
+    }
+  }));
+  const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+
+  assert.equal(product.executable, true);
+  assert.equal(product.displayLabel, "Update existing product code in ShelfCycle");
+  assert.equal(product.selectedTarget.kind, "product");
+  assert.equal(product.selectedTarget.label, "RUCOLAC B-591");
+  assert.equal(product.fieldValues.mode, "update");
+  assert.deepEqual(product.requiredFields, ["selectedTarget.label", "approval.packageSize"]);
 });
 
 test("product intake can create a new ShelfCycle product when required fields are present", () => {
@@ -911,7 +1111,8 @@ test("product intake can create a new ShelfCycle product when required fields ar
       packagingType: "Fixed",
       packaging: "Drum",
       quantityPerPackage: "500 lb",
-      supplierType: "Variable"
+      supplierType: "Variable",
+      sdsPath: "/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/product-documents/new-product-sds.pdf"
     },
     matches: {
       customer: [],
@@ -934,12 +1135,14 @@ test("product intake can create a new ShelfCycle product when required fields ar
   assert.equal(product.executable, true);
   assert.equal(product.displayLabel, "Create product code in ShelfCycle");
   assert.equal(product.fieldValues.mode, "create");
+  assert.equal(product.fieldValues.sdsPath, "/Users/seanwagner/Documents/Playground/shelfcycle-mvp/.local/product-documents/new-product-sds.pdf");
+  assert.ok(product.requiredFields.includes("approval.packageSize"));
   assert.match(product.fieldValues.reuseGuidance, /Existing Product Family matched/);
   assert.equal(productFamily.executable, false);
   assert.match(productFamily.warnings.join(" "), /Product family appears to exist/);
 });
 
-test("product intake blocks product-code creation until a new product family is verified", () => {
+test("product intake allows product-code automation to enter a new product family safely", () => {
   const actions = collectProposedActions(baseReviewAction({
     workflow: "new_product",
     fields: {
@@ -956,9 +1159,158 @@ test("product intake blocks product-code creation until a new product family is 
     }
   }));
   const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+  const productFamily = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_FAMILY_CREATE_OR_UPDATE);
+
+  assert.equal(product.executable, true);
+  assert.equal(product.warnings.length, 0);
+  assert.ok(product.requiredFields.includes("approval.packageSize"));
+  assert.ok(product.requiredFields.includes("approval.productFamily"));
+  assert.equal(product.fieldValues.ensureProductFamily, true);
+  assert.equal(product.fieldValues.productFamilyMode, "create_then_select");
+  assert.match(product.displayLabel, /product family \+ product code/i);
+  assert.match(product.fieldValues.reuseGuidance, /creates the Product Family first/i);
+  assert.equal(productFamily.executable, false);
+  assert.match(productFamily.warnings.join(" "), /Product Family creation runs inside the approved Product Code workflow/i);
+});
+
+test("SDS product intake requires local SDS path before product-code approval", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    documentType: "SDS",
+    fields: {
+      documentType: "SDS",
+      code: "NEW-D",
+      productFamily: "New Product",
+      packagingType: "Fixed",
+      packaging: "Drum",
+      quantityPerPackage: "500 lb",
+      supplierType: "Variable"
+    },
+    matches: {
+      customer: [],
+      product: []
+    }
+  }));
+  const product = actions.find((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
 
   assert.equal(product.executable, false);
-  assert.match(product.warnings.join(" "), /Verify the Product Family exists/);
+  assert.ok(product.requiredFields.includes("fields.sdsPath"));
+  assert.match(product.warnings.join(" "), /local SDS file path/);
+});
+
+test("product intake creates separate product-code actions for multiple package sizes", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    fields: {
+      code: "PH90-475, PH90-40",
+      productFamily: "Phenol",
+      productName: "Phenol-90%",
+      packagingType: "Fixed",
+      packaging: "Drum (lb), Pail (lb)",
+      quantityPerPackage: "475, 40",
+      supplierType: "Fixed",
+      supplier: "Kessler Chemical"
+    },
+    matches: {
+      customer: [],
+      product: []
+    }
+  }));
+  const products = actions.filter((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+
+  assert.equal(products.length, 2);
+  assert.equal(products[0].fieldValues.code, "PH90-475");
+  assert.equal(products[0].fieldValues.packaging, "Drum (lb)");
+  assert.equal(products[0].fieldValues.quantityPerPackage, "475");
+  assert.equal(products[0].executable, true);
+  assert.ok(products[0].requiredFields.includes("approval.packageSize"));
+  assert.ok(products[0].requiredFields.includes("approval.productFamily"));
+  assert.equal(products[1].fieldValues.code, "PH90-40");
+  assert.equal(products[1].fieldValues.packaging, "Pail (lb)");
+  assert.equal(products[1].fieldValues.quantityPerPackage, "40");
+  assert.equal(products[1].executable, true);
+  assert.ok(products[1].requiredFields.includes("approval.packageSize"));
+  assert.ok(products[1].requiredFields.includes("approval.productFamily"));
+  assert.notEqual(products[0].id, products[1].id);
+});
+
+test("product intake creates unique product-code action ids when packaging varies under one code", () => {
+  const actions = collectProposedActions(baseReviewAction({
+    workflow: "new_product",
+    fields: {
+      code: "WB-NPGDGE",
+      productFamily: "Neopentyl Glycol Diglycidyl Ether",
+      packagingType: "Variable",
+      packaging: "Drum, IBC, ISO Tank",
+      quantityPerPackage: "1000",
+      unitOfMeasure: "kg",
+      supplierType: "Fixed",
+      supplier: "Winbond Materials Co., Ltd"
+    },
+    matches: {
+      customer: [],
+      product: []
+    }
+  }));
+  const products = actions.filter((action) => action.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+
+  assert.equal(products.length, 3);
+  assert.equal(new Set(products.map((action) => action.id)).size, 3);
+});
+
+test("findProposedAction resolves old product action id after submitted fields collapse variants", () => {
+  const reviewAction = baseReviewAction({
+    workflow: "new_product",
+    proposedActions: [
+      {
+        id: "review-123-product_create_or_update-wb-npgdge",
+        actionType: SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE,
+        executable: true,
+        fieldValues: {
+          code: "WB-NPGDGE",
+          productFamily: "Neopentyl Glycol Diglycidyl Ether",
+          packagingType: "Variable",
+          packaging: "Drum",
+          quantityPerPackage: "1000",
+          unitOfMeasure: "kg",
+          supplierType: "Fixed",
+          supplier: "Winbond Materials Co., Ltd"
+        }
+      }
+    ],
+    fields: {
+      code: "WB-NPGDGE",
+      productFamily: "Neopentyl Glycol Diglycidyl Ether",
+      packagingType: "Variable",
+      packaging: "Drum, IBC, ISO Tank",
+      quantityPerPackage: "1000",
+      unitOfMeasure: "kg",
+      supplierType: "Fixed",
+      supplier: "Winbond Materials Co., Ltd"
+    },
+    matches: {
+      customer: [],
+      product: []
+    }
+  });
+  const action = findProposedAction(reviewAction, {
+    actionId: "review-123-product_create_or_update-wb-npgdge",
+    actionType: SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE,
+    fields: {
+      code: "WB-NPGDGE",
+      productFamily: "Neopentyl Glycol Diglycidyl Ether",
+      packagingType: "Variable",
+      packaging: "Drum",
+      quantityPerPackage: "1000",
+      unitOfMeasure: "kg",
+      supplierType: "Fixed",
+      supplier: "Winbond Materials Co., Ltd"
+    }
+  });
+
+  assert.equal(action.id, "review-123-product_create_or_update-wb-npgdge");
+  assert.equal(action.actionType, SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE);
+  assert.equal(action.fieldValues.packaging, "Drum");
 });
 
 test("product intake reuses matched product family for a new package code", () => {
@@ -992,5 +1344,6 @@ test("product intake reuses matched product family for a new package code", () =
 
   assert.equal(product.executable, true);
   assert.equal(product.fieldValues.productFamily, "ONGRONAT XP 1127");
+  assert.ok(product.requiredFields.includes("approval.packageSize"));
   assert.match(product.fieldValues.reuseGuidance, /Reuse family-level/);
 });

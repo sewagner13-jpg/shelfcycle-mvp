@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 
 import { SHELFCYCLE_ACTION_TYPES, SHELFCYCLE_ERROR_CODES } from "./shelfcycle-action-router.mjs";
 import { normalizeContactDocumentTypes } from "./shelfcycle-contact-document-types.mjs";
+import { normalizeShelfCycleProductAutomationFields } from "./shelfcycle-dropdown-normalizers.mjs";
+import { missingShelfCycleProductFields } from "./shelfcycle-product-requirements.mjs";
 import { getNoteSubmissionTarget } from "./shelfcycle-submit.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -225,6 +227,46 @@ export function buildContactUpdateSubmission(_reviewAction = {}, proposedAction 
   };
 }
 
+export function buildLocationSubmission(_reviewAction = {}, proposedAction = {}) {
+  assertExecutableAction(proposedAction);
+
+  const target = proposedAction.selectedTarget ?? {};
+  const fields = proposedAction.fieldValues ?? {};
+  const targetKind = target.kind === "supplier" || String(fields.companyType || "").toLowerCase().includes("supplier")
+    ? "supplier"
+    : "customer";
+
+  if (!target.id && !target.label) {
+    const error = new Error("A ShelfCycle customer or supplier target is required.");
+    error.code = SHELFCYCLE_ERROR_CODES.MISSING_TARGET;
+    throw error;
+  }
+
+  if (!fields.name) {
+    const error = new Error("A location name is required.");
+    error.code = SHELFCYCLE_ERROR_CODES.MISSING_REQUIRED_FIELDS;
+    throw error;
+  }
+
+  return {
+    recordType: "location",
+    actionType: proposedAction.actionType,
+    actionId: proposedAction.id,
+    reviewActionId: proposedAction.reviewActionId,
+    customerId: targetKind === "customer" ? (target.id || "") : "",
+    customerName: targetKind === "customer" ? (target.label || "") : "",
+    supplierId: targetKind === "supplier" ? (target.id || "") : "",
+    supplierName: targetKind === "supplier" ? (target.label || "") : "",
+    url: target.id
+      ? `https://app.shelfcycle.com/org-clearedge/${targetKind === "supplier" ? "suppliers" : "customers"}/${target.id}/${targetKind === "supplier" ? "locations" : "addresses"}`
+      : `https://app.shelfcycle.com/org-clearedge/${targetKind === "supplier" ? "suppliers" : "customers"}`,
+    fields: {
+      ...fields,
+      companyType: targetKind
+    }
+  };
+}
+
 export function buildPricingSubmission(_reviewAction = {}, proposedAction = {}) {
   assertExecutableAction(proposedAction);
 
@@ -241,7 +283,19 @@ export function buildPricingSubmission(_reviewAction = {}, proposedAction = {}) 
 export function buildProductSubmission(_reviewAction = {}, proposedAction = {}) {
   assertExecutableAction(proposedAction);
   const product = proposedAction.selectedTarget ?? {};
-  const fields = proposedAction.fieldValues ?? {};
+  const fields = normalizeShelfCycleProductAutomationFields(proposedAction.fieldValues ?? {});
+  const isUpdate = fields.mode === "update" || Boolean(product.id);
+
+  if (!isUpdate) {
+    const missing = missingShelfCycleProductFields(fields);
+
+    if (missing.length) {
+      const error = new Error(`Product-code action is missing required ShelfCycle fields: ${missing.map((field) => field.label).join(", ")}.`);
+      error.code = SHELFCYCLE_ERROR_CODES.MISSING_REQUIRED_FIELDS;
+      error.missingFields = missing;
+      throw error;
+    }
+  }
 
   return {
     recordType: "product_code",
@@ -254,6 +308,36 @@ export function buildProductSubmission(_reviewAction = {}, proposedAction = {}) 
       ? `https://app.shelfcycle.com/org-clearedge/products/${product.id}`
       : "https://app.shelfcycle.com/org-clearedge/products",
     fields
+  };
+}
+
+export function buildProductFamilySubmission(_reviewAction = {}, proposedAction = {}) {
+  assertExecutableAction(proposedAction);
+  const target = proposedAction.selectedTarget ?? {};
+  const fields = normalizeShelfCycleProductAutomationFields(proposedAction.fieldValues ?? {});
+  const familyName = fields.productFamily || fields.name || target.label || "";
+
+  if (!familyName) {
+    const error = new Error("A product family name is required.");
+    error.code = SHELFCYCLE_ERROR_CODES.MISSING_REQUIRED_FIELDS;
+    throw error;
+  }
+
+  return {
+    recordType: "product_family",
+    actionType: proposedAction.actionType,
+    actionId: proposedAction.id,
+    reviewActionId: proposedAction.reviewActionId,
+    productFamilyId: target.id || "",
+    productFamilyName: familyName,
+    url: target.id
+      ? `https://app.shelfcycle.com/org-clearedge/products?groupBy=PRODUCT_FAMILY&productFamilyId=${encodeURIComponent(target.id)}`
+      : "https://app.shelfcycle.com/org-clearedge/products?groupBy=PRODUCT_FAMILY",
+    fields: {
+      ...fields,
+      productFamily: familyName,
+      name: familyName
+    }
   };
 }
 
@@ -302,12 +386,20 @@ export function buildShelfCycleSubmission(reviewAction = {}, proposedAction = {}
     return buildContactUpdateSubmission(reviewAction, proposedAction);
   }
 
+  if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE) {
+    return buildLocationSubmission(reviewAction, proposedAction);
+  }
+
   if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.PRICING_RECORD) {
     return buildPricingSubmission(reviewAction, proposedAction);
   }
 
   if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE) {
     return buildProductSubmission(reviewAction, proposedAction);
+  }
+
+  if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_FAMILY_CREATE_OR_UPDATE) {
+    return buildProductFamilySubmission(reviewAction, proposedAction);
   }
 
   if (proposedAction.actionType === SHELFCYCLE_ACTION_TYPES.PRODUCT_DOCUMENT_FOLLOWUP) {
@@ -323,9 +415,21 @@ export async function executeApprovedShelfCycleAction({
   reviewAction = {},
   proposedAction = {},
   automationRunnerPath,
-  cwd = process.cwd()
+  cwd = process.cwd(),
+  workflowRunId = "",
+  workflowRunsDir = "",
+  abortSignal = null
 } = {}) {
-  const submission = buildShelfCycleSubmission(reviewAction, proposedAction);
+  const baseSubmission = buildShelfCycleSubmission(reviewAction, proposedAction);
+  const submission = workflowRunId && workflowRunsDir
+    ? {
+        ...baseSubmission,
+        workflow: {
+          runId: workflowRunId,
+          storageDir: workflowRunsDir
+        }
+      }
+    : baseSubmission;
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "shelfcycle-agent-"));
   const payloadPath = path.join(tempDir, "action-payload.json");
 
@@ -333,7 +437,8 @@ export async function executeApprovedShelfCycleAction({
     await writeFile(payloadPath, JSON.stringify(submission, null, 2), "utf8");
     const { stdout } = await execFileAsync(process.execPath, [automationRunnerPath, "execute-action", "--payload", payloadPath], {
       cwd,
-      maxBuffer: 1024 * 1024
+      maxBuffer: 1024 * 1024,
+      ...(abortSignal ? { signal: abortSignal } : {})
     });
     const automation = JSON.parse(stdout.trim() || "{}");
 
@@ -343,15 +448,17 @@ export async function executeApprovedShelfCycleAction({
       [SHELFCYCLE_ACTION_TYPES.SUPPLIER_UPDATE]: "Supplier updated in ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.CONTACT_CREATE]: "Contact submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.CONTACT_UPDATE]: "Contact updated in ShelfCycle.",
+      [SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE]: "Location submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.PRICING_RECORD]: "Pricing record submitted to ShelfCycle.",
+      [SHELFCYCLE_ACTION_TYPES.PRODUCT_FAMILY_CREATE_OR_UPDATE]: "Product family submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE]: "Product submitted to ShelfCycle.",
       [SHELFCYCLE_ACTION_TYPES.PRODUCT_DOCUMENT_FOLLOWUP]: "Product document submitted to ShelfCycle."
     };
 
     return {
-      status: "submitted",
+      status: automation.dryRun ? "dry_run" : "submitted",
       shelfcycleUrl: automation.savedAtUrl || submission.url || "",
-      message: messages[proposedAction.actionType] || "ShelfCycle action submitted.",
+      message: automation.message || messages[proposedAction.actionType] || "ShelfCycle action submitted.",
       actionType: proposedAction.actionType,
       actionId: proposedAction.id,
       target: proposedAction.selectedTarget,

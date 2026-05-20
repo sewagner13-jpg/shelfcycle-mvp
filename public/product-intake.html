@@ -26,7 +26,7 @@
         </nav>
         <div class="sidebar-note">
           <span class="status-dot"></span>
-          Load SDS/TDS PDFs or text files. ChatGPT parses the product fields before approval.
+          Load a PDF or paste text. Review before ShelfCycle.
         </div>
       </aside>
 
@@ -36,12 +36,12 @@
             <p class="eyebrow">Product Documents</p>
             <h1>SDS/TDS Product Intake</h1>
             <p class="lede">
-              Process SDS, TDS, technical data, supplier pages, and product notes into catalog matches,
-              product update suggestions, document follow-through, and approval-ready ShelfCycle actions.
+              Parse product documents into ShelfCycle-ready family, code, package, and safety fields.
             </p>
           </div>
           <div class="topbar-actions">
             <button id="analyze" class="primary">Analyze Product Document</button>
+            <button id="clear-product-draft" class="ghost" type="button">Clear Saved Work</button>
             <a class="button-link ghost" href="/settings.html">Reference Data</a>
           </div>
         </header>
@@ -57,13 +57,12 @@
                 <div class="record-meta">
                   <span>Owner: Sean</span>
                   <span>Status: Review before ShelfCycle write</span>
-                  <span>Workflow: New product / product update</span>
+                  <span>Workflow: Product family + product codes</span>
                 </div>
               </div>
               <div class="actions">
-                <button class="ghost" disabled title="Use Analyze Product Document first">Create Product</button>
-                <button class="ghost" disabled title="Use Analyze Product Document first">Upload File</button>
-                <button class="ghost" disabled title="Use Analyze Product Document first">Request Approval</button>
+                <button id="create-product-action" class="ghost" type="button" disabled title="Run analysis first.">Approve &amp; Send to ShelfCycle</button>
+                <button id="upload-product-file" class="ghost" type="button">Upload File</button>
               </div>
             </div>
 
@@ -72,54 +71,78 @@
               <a class="record-tab" href="#intelligence-brief">Intelligence</a>
               <a class="record-tab" href="#matches">Catalog Matches</a>
               <a class="record-tab" href="#suggested-creates">Suggested Creates</a>
-              <a class="record-tab" href="#write-plan">Write Plan</a>
+              <a class="record-tab" href="#write-plan-section">Write Plan</a>
             </div>
 
             <div id="intake-overview" class="intake-grid">
               <div class="input-panel">
                 <label for="workflow">Workflow</label>
                 <select id="workflow">
-                  <option value="new_product">New product / SDS-TDS intake</option>
+                  <option value="new_product">Make/update product family + product codes</option>
                   <option value="auto">Auto-detect</option>
                   <option value="email_thread">Email thread</option>
                   <option value="call_report">Call report</option>
                 </select>
 
-                <label for="source-files">Load SDS/TDS source</label>
+                <label for="product-intake-mode">ShelfCycle product-code action</label>
+                <select id="product-intake-mode">
+                  <option value="create">Create new product code</option>
+                  <option value="update">Update existing product code</option>
+                </select>
+
+                <div id="existing-product-panel" hidden>
+                  <label for="existing-product-target">Existing ShelfCycle product code to update</label>
+                  <input
+                    id="existing-product-target"
+                    type="text"
+                    list="product-target-options"
+                    placeholder="Paste product URL or type exact ShelfCycle product code/name"
+                  />
+                  <datalist id="product-target-options"></datalist>
+                  <p class="form-help">Required for update mode. The local agent will open this product code, click Edit, and apply only the approved fields.</p>
+                </div>
+
+                <label for="source-files">Load SDS/TDS source files</label>
                 <input id="source-files" type="file" multiple accept=".pdf,application/pdf,.txt,.md,.csv,.tsv,.sds,.tds,text/*" />
-                <p id="source-file-status" class="form-help">PDFs are parsed by ChatGPT into ShelfCycle product-family and product-code fields. Raw PDF text is kept out of the workbench unless you open the manual fallback.</p>
+                <p id="source-file-status" class="form-help">Upload a file, or paste readable text below.</p>
 
                 <div id="source-document-summary" class="document-source-summary">
-                  <div class="empty-state compact">No SDS/TDS source loaded yet.</div>
+                  <div class="empty-state compact">No source loaded.</div>
+                </div>
+
+                <div class="manual-source-card">
+                  <div class="manual-source-header">
+                    <div>
+                      <p class="section-kicker">Paste Text</p>
+                      <label for="input-text">SDS/TDS or product information</label>
+                    </div>
+                    <span class="muted-pill">Same ChatGPT parser</span>
+                  </div>
+                  <p class="form-help">Use this when a PDF is unreadable or you already copied product information.</p>
+                  <textarea
+                    id="input-text"
+                    class="manual-source-textarea"
+                    placeholder="Paste product name, supplier, CAS, packaging, SDS/TDS sections, GHS, transport, freight, specs, or package codes..."
+                  ></textarea>
+                  <div class="manual-source-actions">
+                    <button id="parse-pasted-product-text" class="primary" type="button" disabled>Parse Pasted Text with ChatGPT</button>
+                  </div>
                 </div>
 
                 <div id="parsed-product-fields" class="parsed-product-fields">
-                  <div class="empty-state compact">Parsed ShelfCycle fields will appear here after a source file is loaded or analyzed.</div>
+                  <div class="empty-state compact">Parsed fields appear here.</div>
                 </div>
 
-                <details class="technical-details product-text-fallback">
-                  <summary>Optional manual source text</summary>
-                  <p class="form-help">Use this only when you need to paste text from a supplier page or PDF extraction failed. Uploaded PDFs are not pasted here.</p>
-                  <label for="input-text">Manual SDS/TDS or supplier product text</label>
-                  <textarea
-                    id="input-text"
-                    placeholder="Paste SDS/TDS text, supplier product page text, technical data, chemical name, CAS, packaging, application notes, pricing, or document metadata..."
-                  ></textarea>
-                </details>
+                <div id="product-workflow-status" class="product-workflow-status"></div>
               </div>
 
               <aside class="next-action-panel">
                 <p class="section-kicker">Next Best Action</p>
-                <h3>Find the product before creating anything</h3>
-                <p>
-                  The workbench should identify product names, aliases, CAS numbers, technical document
-                  requirements, catalog matches, warnings, and suggested ShelfCycle updates.
-                </p>
+                <h3>Analyze, edit, approve</h3>
                 <div class="next-action-list">
-                  <span>1. Load or paste product document text</span>
-                  <span>2. Analyze against ClearEdge reference data</span>
-                  <span>3. Review catalog matches and warnings</span>
-                  <span>4. Approve any ShelfCycle product action manually</span>
+                  <span>1. Upload or paste source text</span>
+                  <span>2. Parse with ChatGPT</span>
+                  <span>3. Review fields, then approve import</span>
                 </div>
               </aside>
             </div>
@@ -156,21 +179,27 @@
           <div class="panel-header">
             <div>
               <p class="section-kicker">Review Board</p>
-              <h2>Product intake results</h2>
+              <h2>Product family and product-code results</h2>
             </div>
-            <span class="muted-pill">Output only - no automatic save</span>
+            <span class="muted-pill">Approval-first</span>
           </div>
 
           <div class="output-grid">
-            <div class="result-section">
-              <h3>Write Plan</h3>
+            <details id="write-plan-section" class="result-section collapsible-output">
+              <summary>
+                <span>Write Plan</span>
+                <small>Expand backend plan</small>
+              </summary>
               <pre id="write-plan" class="text-block"></pre>
-            </div>
+            </details>
 
-            <div class="result-section">
-              <h3>Draft</h3>
+            <details class="result-section collapsible-output">
+              <summary>
+                <span>Draft</span>
+                <small>Expand generated draft</small>
+              </summary>
               <pre id="draft" class="text-block tall"></pre>
-            </div>
+            </details>
 
             <div class="result-section">
               <h3>Matches</h3>
@@ -182,18 +211,24 @@
               <pre id="suggested-creates" class="text-block"></pre>
             </div>
 
-            <div class="result-section">
-              <h3>Follow-up Draft</h3>
+            <details class="result-section collapsible-output">
+              <summary>
+                <span>Follow-up Draft</span>
+                <small>Expand follow-up text</small>
+              </summary>
               <pre id="follow-up-draft" class="text-block tall"></pre>
-            </div>
+            </details>
 
-            <div class="result-section">
-              <h3>Role Worklists</h3>
+            <details class="result-section collapsible-output">
+              <summary>
+                <span>Role Worklists</span>
+                <small>Expand owner/sales/procurement worklists</small>
+              </summary>
               <pre id="role-worklists" class="text-block tall"></pre>
-            </div>
+            </details>
 
             <div class="result-section output-wide">
-              <h3>ShelfCycle Approval Actions</h3>
+              <h3>ShelfCycle Product-Code Approval Actions</h3>
               <div id="product-actions" class="home-action-stack"></div>
             </div>
 

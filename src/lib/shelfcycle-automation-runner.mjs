@@ -3,9 +3,11 @@ import {
   submitShelfCycleContact,
   submitShelfCycleContactUpdate,
   submitShelfCycleCustomer,
+  submitShelfCycleLocation,
   submitShelfCycleNote,
   submitShelfCyclePriceBookEntry,
   submitShelfCycleProductCode,
+  submitShelfCycleProductFamily,
   submitShelfCycleProductDocument,
   submitShelfCycleSupplier,
   submitShelfCycleSupplierUpdate,
@@ -60,7 +62,9 @@ async function main() {
       supplier_update: submitShelfCycleSupplierUpdate,
       contact_create: submitShelfCycleContact,
       contact_update: submitShelfCycleContactUpdate,
+      location_create: submitShelfCycleLocation,
       pricing_record: submitShelfCyclePriceBookEntry,
+      product_family_create_or_update: submitShelfCycleProductFamily,
       product_create_or_update: submitShelfCycleProductCode,
       product_document_followup: submitShelfCycleProductDocument
     };

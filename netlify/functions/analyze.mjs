@@ -9,6 +9,7 @@ import {
   mergeProductDocumentExtractionIntoResult,
   sanitizeProductDocumentResultForSource
 } from "../../src/lib/product-document-source.mjs";
+import { parseLabeledProductFields } from "../../src/lib/parse-product-document.mjs";
 import { shelfCycleProductRequirementsForFields } from "../../src/lib/shelfcycle-product-requirements.mjs";
 import { getEnv } from "./_shared/env.mjs";
 import { loadBriefSettings, loadKnowledgeBundle, saveReviewAction } from "./_shared/knowledge-store.mjs";
@@ -87,6 +88,16 @@ function productAiLines(aiDerivedFields = [], fields = {}) {
   return lines;
 }
 
+function explicitProductFieldOverrides(text = "") {
+  const labeledFields = parseLabeledProductFields(text);
+
+  return Object.fromEntries(
+    Object.entries(labeledFields)
+      .filter(([, value]) => compactWhitespace(value))
+      .map(([key, value]) => [key, compactWhitespace(value)])
+  );
+}
+
 function mergeReferenceData(payloadReferenceData = {}, hostedKnowledge = {}) {
   const output = {};
 
@@ -160,23 +171,43 @@ function withProductWritePlan(result = {}) {
         code: fields.code ?? "",
         productFamily: fields.productFamily ?? "",
         supplier: fields.supplier ?? "",
+        sdsPath: fields.sdsPath ?? "",
         casNumber: fields.casNumber ?? "",
         packagingType: fields.packagingType ?? "",
         packaging: fields.packaging ?? "",
         quantityPerPackage: fields.quantityPerPackage ?? "",
+        unitOfMeasure: fields.unitOfMeasure ?? "",
         supplierType: fields.supplierType ?? "",
+        documentType: fields.documentType ?? documentType,
         unNumber: fields.unNumber ?? "",
         packingGroup: fields.packingGroup ?? "",
         properShippingName: fields.properShippingName ?? "",
         freightClass: fields.freightClass ?? "",
         nmfcCode: fields.nmfcCode ?? "",
+        pallet: fields.pallet ?? "",
+        packagesPerPallet: fields.packagesPerPallet ?? "",
+        chemicalName: fields.chemicalName ?? "",
+        productFamilyDescription: fields.productFamilyDescription ?? "",
+        aliases: fields.aliases ?? "",
         hazardClass: fields.hazardClass ?? "",
         specialDesignation: fields.specialDesignation ?? "",
         signalWord: fields.signalWord ?? "",
         hazardSymbols: fields.hazardSymbols ?? "",
+        physicalState: fields.physicalState ?? "",
+        appearance: fields.appearance ?? "",
+        density: fields.density ?? "",
+        specificGravity: fields.specificGravity ?? "",
+        viscosity: fields.viscosity ?? "",
+        flashPoint: fields.flashPoint ?? "",
+        boilingPoint: fields.boilingPoint ?? "",
+        storage: fields.storage ?? "",
+        shelfLife: fields.shelfLife ?? "",
+        recommendedUse: fields.recommendedUse ?? "",
+        documentDate: fields.documentDate ?? "",
         shelfCycleReadySummary: fields.shelfCycleReadySummary ?? ""
       },
       missingRequiredFields: shelfCycleRequirements.missingRequiredFields.map((field) => field.message || field.label),
+      missingReviewFields: shelfCycleRequirements.missingReviewFields.map((field) => field.message || field.label),
       readyForProductCodeCreate: shelfCycleRequirements.readyForProductCodeCreate,
       requirementSource: shelfCycleRequirements.source,
       aiDerivedFields: result.aiDerivedFields ?? [],
@@ -214,6 +245,7 @@ function sanitizeReviewAction(action = null) {
 
 async function hostedAnalyzeProduct(payload = {}, referenceData = {}) {
   const inputBody = String(payload.text || "");
+  const explicitFields = explicitProductFieldOverrides(inputBody);
   let result = analyzeInput({
     ...payload,
     text: inputBody,
@@ -257,7 +289,8 @@ async function hostedAnalyzeProduct(payload = {}, referenceData = {}) {
       ...rerun,
       fields: {
         ...(rerun.fields ?? {}),
-        ...(refinedResult.fields ?? {})
+        ...(refinedResult.fields ?? {}),
+        ...explicitFields
       },
       aiDerivedFields: refinedResult.aiDerivedFields ?? [],
       missingShelfCycleFields: refinedResult.missingShelfCycleFields ?? [],
@@ -268,7 +301,13 @@ async function hostedAnalyzeProduct(payload = {}, referenceData = {}) {
       ])
     };
   } else {
-    result = refinedResult;
+    result = {
+      ...refinedResult,
+      fields: {
+        ...(refinedResult.fields ?? {}),
+        ...explicitFields
+      }
+    };
   }
 
   result = sanitizeProductDocumentResultForSource(result, inputBody);

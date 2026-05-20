@@ -25,7 +25,10 @@ export const ACTION_STATE = Object.freeze({
   READY_FOR_APPROVAL: "ready_for_approval",
   WAITING_APPROVAL: "waiting_approval",
   RUNNING: "running",
+  MANUAL_ASSIST: "manual_assist",
+  DRY_RUN: "dry_run",
   SUBMITTED: "submitted",
+  CANCELLED: "cancelled",
   FAILED: "failed"
 });
 
@@ -65,6 +68,10 @@ const PHASE_TO_DAILY_STEP = Object.freeze({
   complete: "email_send",
   finished: "email_send"
 });
+
+export function dailyBriefStepIdForPhase(phase = "") {
+  return PHASE_TO_DAILY_STEP[phase] || phase || "";
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -262,7 +269,7 @@ export async function updateWorkflowStep(storageDir, runId, stepId, patch = {}) 
 }
 
 export async function updateDailyBriefWorkflowFromPhase(storageDir, runId, phase, detail = {}) {
-  const stepId = PHASE_TO_DAILY_STEP[phase] || phase;
+  const stepId = dailyBriefStepIdForPhase(phase);
   const run = await loadWorkflowRun(storageDir, runId);
 
   if (!run) {
@@ -357,7 +364,9 @@ export async function failWorkflowRun(storageDir, runId, error, { stepId = "" } 
   return writeRun(storageDir, {
     ...run,
     status: WORKFLOW_STATUS.FAILED,
-    actionState: run.actionState === ACTION_STATE.RUNNING ? ACTION_STATE.FAILED : run.actionState,
+    actionState: [ACTION_STATE.RUNNING, ACTION_STATE.MANUAL_ASSIST].includes(run.actionState)
+      ? ACTION_STATE.FAILED
+      : run.actionState,
     updatedAt: timestamp,
     finishedAt: timestamp,
     currentStepId: stepId || run.currentStepId,
@@ -376,6 +385,53 @@ export async function failWorkflowRun(storageDir, runId, error, { stepId = "" } 
       {
         at: timestamp,
         level: "error",
+        message
+      }
+    ].slice(-250)
+  });
+}
+
+export async function cancelWorkflowRun(storageDir, runId, { stepId = "", message = "Workflow run cancelled by user." } = {}) {
+  const run = await loadWorkflowRun(storageDir, runId);
+
+  if (!run) {
+    return null;
+  }
+
+  const timestamp = nowIso();
+  const activeStepId = stepId || run.currentStepId;
+
+  return writeRun(storageDir, {
+    ...run,
+    status: WORKFLOW_STATUS.CANCELLED,
+    actionState: ACTION_STATE.CANCELLED,
+    updatedAt: timestamp,
+    finishedAt: timestamp,
+    currentStepId: activeStepId,
+    artifacts: {
+      ...(run.artifacts ?? {}),
+      manualAssist: {
+        ...(run.artifacts?.manualAssist ?? {}),
+        requested: false,
+        active: false,
+        cancelledAt: timestamp,
+        message
+      }
+    },
+    steps: run.steps.map((step) => step.id === activeStepId
+      ? {
+        ...step,
+        status: WORKFLOW_STEP_STATUS.SKIPPED,
+        detail: message,
+        finishedAt: timestamp,
+        updatedAt: timestamp
+      }
+      : step),
+    logs: [
+      ...(run.logs ?? []),
+      {
+        at: timestamp,
+        level: "info",
         message
       }
     ].slice(-250)

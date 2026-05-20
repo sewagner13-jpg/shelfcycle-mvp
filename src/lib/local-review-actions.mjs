@@ -138,6 +138,8 @@ export function createReviewActionRecord(item = {}) {
     threadId: item.threadId,
     subject: item.subject || "",
     workflow: item.analysis?.workflow || item.workflow || "",
+    productIntakeMode: item.analysis?.productIntakeMode || item.productIntakeMode || "",
+    productUpdateTarget: item.analysis?.productUpdateTarget ?? item.productUpdateTarget ?? null,
     fields: item.analysis?.fields ?? item.fields ?? {},
     documentType: item.analysis?.documentType ?? item.documentType ?? "",
     aiDerivedFields: item.analysis?.aiDerivedFields ?? item.aiDerivedFields ?? [],

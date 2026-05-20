@@ -4,9 +4,27 @@ import assert from "node:assert/strict";
 import {
   classifyRecordEditButtonCandidate,
   contactTargetKindFromSubmission,
+  isProductCodeUpdateSubmission,
+  isTransientSaveClickError,
   mentionResultsForUnavailableEditor,
+  normalizeHazardClassDropdownValues,
+  normalizePackagingTypeDropdownValue,
+  normalizePackingGroupDropdownValue,
+  normalizeUnitOfMeasureDropdownValue,
+  normalizeUnNumberDropdownValue,
   typeMentionSegments
 } from "../src/lib/shelfcycle-automation.mjs";
+import {
+  bestDropdownOptionMatch,
+  dropdownSelectionMatches,
+  dropdownValueCandidates,
+  dropdownOptionMatchScore,
+  normalizePackagingDropdownValue
+} from "../src/lib/shelfcycle-dropdown-normalizers.mjs";
+import {
+  SHELFCYCLE_PRODUCT_CODE_FIELDS,
+  shelfCycleDropdownArgs
+} from "../src/lib/shelfcycle-field-map.mjs";
 
 class FakeLocator {
   constructor({ count = 0, onClick = () => {}, isVisible = true } = {}) {
@@ -76,6 +94,101 @@ function fakePageWithMentionOptions(resolveLabels = [], { stickyLabels = [] } = 
     locator: () => new FakeLocator()
   };
 }
+
+test("isProductCodeUpdateSubmission does not treat a create product name as an update", () => {
+  assert.equal(isProductCodeUpdateSubmission({
+    productName: "WB-NPGDGE",
+    fields: {
+      mode: "create",
+      code: "WB-NPGDGE"
+    }
+  }), false);
+  assert.equal(isProductCodeUpdateSubmission({
+    productId: "prod-123",
+    productName: "WB-NPGDGE",
+    fields: {
+      mode: "create",
+      code: "WB-NPGDGE"
+    }
+  }), true);
+  assert.equal(isProductCodeUpdateSubmission({
+    productName: "WB-NPGDGE",
+    fields: {
+      mode: "update",
+      code: "WB-NPGDGE"
+    }
+  }), true);
+});
+
+test("transport dropdown normalizers map non-regulated SDS language to ShelfCycle options", () => {
+  assert.equal(normalizeUnNumberDropdownValue("Not regulated"), "NON-HAZ / NOT REGULATED");
+  assert.equal(normalizeUnNumberDropdownValue("UN 1993"), "UN1993");
+  assert.equal(normalizeUnNumberDropdownValue("Not available"), "");
+  assert.equal(normalizePackingGroupDropdownValue("NOT REGULATED"), "NOT REGULATED");
+  assert.equal(normalizePackingGroupDropdownValue("Not Applicable", {
+    unNumber: "NON-HAZ / NOT REGULATED"
+  }), "NOT REGULATED");
+  assert.equal(normalizePackingGroupDropdownValue("III"), "III - Low danger");
+  assert.equal(normalizePackingGroupDropdownValue("PG II"), "II - Medium danger");
+  assert.deepEqual(normalizeHazardClassDropdownValues("Not regulated"), []);
+  assert.deepEqual(normalizeHazardClassDropdownValues("3"), ["3 - Flammable Liquids"]);
+  assert.deepEqual(normalizeHazardClassDropdownValues("6.1 - Toxic"), ["6.1 - Toxic Substances"]);
+});
+
+test("product package normalizers map ShelfCycle dropdown values", () => {
+  assert.equal(normalizePackagingTypeDropdownValue("VARIABLE"), "Variable");
+  assert.equal(normalizePackagingTypeDropdownValue("fixed package"), "Fixed");
+  assert.equal(normalizePackagingDropdownValue("drums", { unitOfMeasure: "kilograms" }), "Drum (kg)");
+  assert.equal(normalizePackagingDropdownValue("pails", { unitOfMeasure: "pounds" }), "Pail (lb)");
+  assert.equal(normalizePackagingDropdownValue("IBC", { unitOfMeasure: "kg" }), "Totes (kg)");
+  assert.equal(normalizeUnitOfMeasureDropdownValue("kilograms"), "kg");
+  assert.equal(normalizeUnitOfMeasureDropdownValue("pounds"), "lb");
+  assert.equal(normalizeUnitOfMeasureDropdownValue("kg, ea"), "kg");
+});
+
+test("dropdown matcher selects supplier option with aliases and punctuation differences", () => {
+  const option = "Winbond Materials Co., Ltd. | Winbond Hardeners Co.,Ltd.";
+
+  assert.ok(dropdownOptionMatchScore({
+    value: "WINBOND MATERIALS CO., LTD.",
+    optionText: option
+  }) >= 90);
+
+  assert.equal(bestDropdownOptionMatch({
+    value: "WINBOND MATERIALS CO., LTD.",
+    options: [
+      "Wanhua Chemical (America) Co., Ltd.",
+      option,
+      "Kessler Chemical"
+    ]
+  })?.optionText, option);
+  assert.ok(dropdownValueCandidates("WINBOND MATERIALS CO., LTD.").includes("Winbond Materials Co., Ltd. | Winbond Hardeners Co., Ltd."));
+  assert.equal(dropdownSelectionMatches({
+    expected: "WINBOND MATERIALS CO., LTD.",
+    actual: option
+  }), true);
+});
+
+test("product code field map keeps ambiguous ShelfCycle dropdowns exact", () => {
+  assert.equal(SHELFCYCLE_PRODUCT_CODE_FIELDS.supplierType.placeholder, "Select a Supplier Type");
+  assert.equal(SHELFCYCLE_PRODUCT_CODE_FIELDS.supplier.placeholder, "Supplier");
+  assert.equal(SHELFCYCLE_PRODUCT_CODE_FIELDS.packagingType.placeholder, "Packaging Type");
+  assert.equal(SHELFCYCLE_PRODUCT_CODE_FIELDS.packaging.placeholder, "Select Packaging");
+
+  const supplierType = shelfCycleDropdownArgs(SHELFCYCLE_PRODUCT_CODE_FIELDS, "supplierType");
+  const supplier = shelfCycleDropdownArgs(SHELFCYCLE_PRODUCT_CODE_FIELDS, "supplier");
+  const packagingType = shelfCycleDropdownArgs(SHELFCYCLE_PRODUCT_CODE_FIELDS, "packagingType");
+  const packaging = shelfCycleDropdownArgs(SHELFCYCLE_PRODUCT_CODE_FIELDS, "packaging");
+
+  assert.equal(supplierType.label.test("Supplier Type"), true);
+  assert.equal(supplierType.label.test("Supplier"), false);
+  assert.equal(supplier.label.test("Supplier"), true);
+  assert.equal(supplier.label.test("Supplier Type"), false);
+  assert.equal(packagingType.label.test("Packaging Type"), true);
+  assert.equal(packagingType.label.test("Packaging"), false);
+  assert.equal(packaging.label.test("Packaging"), true);
+  assert.equal(packaging.label.test("Packaging Type"), false);
+});
 
 test("typeMentionSegments links all mention picker matches", async () => {
   const page = fakePageWithMentionOptions(["Erin Christos", "Rucolac B-591"]);
@@ -239,4 +352,11 @@ test("classifyRecordEditButtonCandidate rejects unsafe upper-right action button
 
   assert.equal(candidate.unsafe, true);
   assert.equal(candidate.score, -1);
+});
+
+test("isTransientSaveClickError identifies ShelfCycle Mantine save races", () => {
+  assert.equal(isTransientSaveClickError(new Error("element is not stable")), true);
+  assert.equal(isTransientSaveClickError(new Error("element was detached from the DOM")), true);
+  assert.equal(isTransientSaveClickError(new Error("subtree intercepts pointer events")), true);
+  assert.equal(isTransientSaveClickError(new Error("Validation failed: Name is required")), false);
 });

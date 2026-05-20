@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildMimeEmail } from "../src/lib/gmail-client.mjs";
+import { buildMimeEmail, fetchRecentThreads } from "../src/lib/gmail-client.mjs";
 
 test("buildMimeEmail builds a simple plain-text message", () => {
   const mime = buildMimeEmail({
@@ -35,4 +35,45 @@ test("buildMimeEmail includes attachments in multipart MIME", () => {
   assert.match(mime, /Content-Disposition: attachment; filename="broker-invoice.pdf"/);
   assert.match(mime, /aGVsbG8=/);
   assert.match(mime, /--test-boundary--/);
+});
+
+test("fetchRecentThreads reports progress and wraps Gmail network failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const progress = [];
+
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+
+    if (href.includes("/messages?")) {
+      return Response.json({
+        messages: [
+          { threadId: "thread-1" }
+        ]
+      });
+    }
+
+    throw new TypeError("fetch failed");
+  };
+
+  try {
+    await assert.rejects(
+      () => fetchRecentThreads({
+        maxMessages: 1,
+        config: {
+          accessToken: "test-token",
+          gmailRequestTimeoutMs: 500
+        },
+        onProgress: (event) => {
+          progress.push(event);
+        }
+      }),
+      /Gmail GET threads\/thread-1 failed against gmail\.googleapis\.com: fetch failed/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(progress.length, 1);
+  assert.equal(progress[0].threadCount, 1);
+  assert.equal(progress[0].fetchedThreads, 0);
 });

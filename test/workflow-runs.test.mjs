@@ -11,6 +11,7 @@ import {
   WORKFLOW_STEP_STATUS,
   actionContractForProposedAction,
   createWorkflowRun,
+  dailyBriefStepIdForPhase,
   failWorkflowRun,
   finishWorkflowRun,
   listWorkflowRuns,
@@ -68,6 +69,13 @@ test("workflow runs persist ordered step state and metrics", async () => {
     assert.equal(finished.metrics.reviewLinks, 4);
     assert.ok(finished.steps.every((step) => step.status === WORKFLOW_STEP_STATUS.SUCCEEDED));
   });
+});
+
+test("daily brief phases map to operator-visible workflow steps", () => {
+  assert.equal(dailyBriefStepIdForPhase("gmail_profile"), "gmail_fetch");
+  assert.equal(dailyBriefStepIdForPhase("gmail_fetch"), "gmail_fetch");
+  assert.equal(dailyBriefStepIdForPhase("review_links"), "review_generate");
+  assert.equal(dailyBriefStepIdForPhase("send_email"), "email_send");
 });
 
 test("workflow runs record failures on the active step", async () => {

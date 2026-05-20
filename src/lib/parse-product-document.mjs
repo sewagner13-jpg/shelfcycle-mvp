@@ -16,8 +16,107 @@ function findAll(text = "", pattern) {
   return uniqueStrings((text.match(pattern) ?? []).map((value) => compactWhitespace(value)));
 }
 
+function normalizeLabel(label = "") {
+  return compactWhitespace(label)
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const LABELED_PRODUCT_FIELD_MAP = new Map(
+  Object.entries({
+    "product family": "productFamily",
+    "chemical name": "chemicalName",
+    "product family description": "productFamilyDescription",
+    aliases: "aliases",
+    alias: "aliases",
+    "cas number": "casNumber",
+    cas: "casNumber",
+    "recommended use": "recommendedUse",
+    "product code": "code",
+    sku: "code",
+    "product name": "productName",
+    "packaging type": "packagingType",
+    packaging: "packaging",
+    package: "packaging",
+    "quantity per package": "quantityPerPackage",
+    "package quantity": "quantityPerPackage",
+    "package qty": "quantityPerPackage",
+    "unit of measure": "unitOfMeasure",
+    uom: "unitOfMeasure",
+    "supplier type": "supplierType",
+    supplier: "supplier",
+    manufacturer: "supplier",
+    "document type": "documentType",
+    "sds local file path": "sdsPath",
+    "sds path": "sdsPath",
+    "un/na number": "unNumber",
+    "un na number": "unNumber",
+    "un number": "unNumber",
+    "na number": "unNumber",
+    "packing group": "packingGroup",
+    "hazard class": "hazardClass",
+    "special designation": "specialDesignation",
+    "proper shipping name": "properShippingName",
+    "ghs signal word": "signalWord",
+    "signal word": "signalWord",
+    "hazard symbols": "hazardSymbols",
+    "hazard symbol": "hazardSymbols",
+    "nmfc code": "nmfcCode",
+    nmfc: "nmfcCode",
+    "freight class": "freightClass",
+    pallet: "pallet",
+    "packages per pallet": "packagesPerPallet",
+    "physical state": "physicalState",
+    appearance: "appearance",
+    density: "density",
+    "specific gravity": "specificGravity",
+    viscosity: "viscosity",
+    "flash point": "flashPoint",
+    "boiling point": "boilingPoint",
+    storage: "storage",
+    "shelf life": "shelfLife",
+    "document date": "documentDate"
+  }).map(([label, field]) => [normalizeLabel(label), field])
+);
+
+export function parseLabeledProductFields(text = "") {
+  const fields = {};
+
+  for (const rawLine of String(text || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+
+    if (!line || /^=+\s*.+?\s*=+$/.test(line)) {
+      continue;
+    }
+
+    const match = line.match(/^([A-Za-z0-9/().#&' -]{2,70})\s*:\s*(.*)$/);
+
+    if (!match) {
+      continue;
+    }
+
+    const key = LABELED_PRODUCT_FIELD_MAP.get(normalizeLabel(match[1]));
+
+    if (!key) {
+      continue;
+    }
+
+    const value = compactWhitespace(match[2]);
+
+    if (value || !Object.hasOwn(fields, key)) {
+      fields[key] = value;
+    }
+  }
+
+  return fields;
+}
+
 export function parseProductDocument(text = "") {
-  const documentType = /\btechnical data sheet\b|\btds\b/i.test(text) ? "TDS" : "SDS";
+  const labeledFields = parseLabeledProductFields(text);
+  const documentType = labeledFields.documentType || (/\btechnical data sheet\b|\btds\b/i.test(text) ? "TDS" : "SDS");
   const productName = findField(text, [
     /product(?:\s+identifier|\s+name)?\s*[:\-]\s*(.+)/i,
     /trade\s+name\s*[:\-]\s*(.+)/i,
@@ -58,20 +157,43 @@ export function parseProductDocument(text = "") {
     workflow: "new_product",
     documentType,
     fields: {
-      productName,
-      code,
-      productFamily,
-      supplier: manufacturer,
-      casNumber: casNumbers[0] ?? "",
-      packaging,
-      quantityPerPackage,
-      unNumber: unNumbers[0] ?? "",
-      packingGroup,
-      hazardClass,
-      properShippingName,
-      signalWord,
-      freightClass,
-      nmfcCode
+      productName: labeledFields.productName ?? productName,
+      code: labeledFields.code ?? code,
+      productFamily: labeledFields.productFamily ?? productFamily,
+      productFamilyDescription: labeledFields.productFamilyDescription ?? "",
+      chemicalName: labeledFields.chemicalName ?? "",
+      aliases: labeledFields.aliases ?? "",
+      supplier: labeledFields.supplier ?? manufacturer,
+      casNumber: labeledFields.casNumber ?? casNumbers[0] ?? "",
+      packagingType: labeledFields.packagingType ?? "",
+      packaging: labeledFields.packaging ?? packaging,
+      quantityPerPackage: labeledFields.quantityPerPackage ?? quantityPerPackage,
+      unitOfMeasure: labeledFields.unitOfMeasure ?? "",
+      supplierType: labeledFields.supplierType ?? "",
+      documentType,
+      sdsPath: labeledFields.sdsPath ?? "",
+      unNumber: labeledFields.unNumber ?? unNumbers[0] ?? "",
+      packingGroup: labeledFields.packingGroup ?? packingGroup,
+      hazardClass: labeledFields.hazardClass ?? hazardClass,
+      specialDesignation: labeledFields.specialDesignation ?? "",
+      properShippingName: labeledFields.properShippingName ?? properShippingName,
+      signalWord: labeledFields.signalWord ?? signalWord,
+      hazardSymbols: labeledFields.hazardSymbols ?? "",
+      freightClass: labeledFields.freightClass ?? freightClass,
+      nmfcCode: labeledFields.nmfcCode ?? nmfcCode,
+      pallet: labeledFields.pallet ?? "",
+      packagesPerPallet: labeledFields.packagesPerPallet ?? "",
+      physicalState: labeledFields.physicalState ?? "",
+      appearance: labeledFields.appearance ?? "",
+      density: labeledFields.density ?? "",
+      specificGravity: labeledFields.specificGravity ?? "",
+      viscosity: labeledFields.viscosity ?? "",
+      flashPoint: labeledFields.flashPoint ?? "",
+      boilingPoint: labeledFields.boilingPoint ?? "",
+      storage: labeledFields.storage ?? "",
+      shelfLife: labeledFields.shelfLife ?? "",
+      recommendedUse: labeledFields.recommendedUse ?? "",
+      documentDate: labeledFields.documentDate ?? ""
     },
     attachmentPlan: {
       sds: documentType === "SDS",

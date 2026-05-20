@@ -6,6 +6,7 @@ const DEFAULT_GMAIL_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.send"
 ];
+const DEFAULT_GMAIL_REQUEST_TIMEOUT_MS = 45_000;
 
 function base64UrlEncode(value = "") {
   return Buffer.from(value, "utf8").toString("base64url");
@@ -45,6 +46,21 @@ function normalizeScopes(value = DEFAULT_GMAIL_SCOPES) {
   const raw = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
   const scopes = raw.map((scope) => String(scope || "").trim()).filter(Boolean);
   return scopes.length ? scopes : [...DEFAULT_GMAIL_SCOPES];
+}
+
+function normalizeTimeoutMs(value, fallback = DEFAULT_GMAIL_REQUEST_TIMEOUT_MS) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function gmailRequestTimeoutMs(config = {}) {
+  return normalizeTimeoutMs(
+    firstDefined(
+      config.gmailRequestTimeoutMs,
+      config.requestTimeoutMs,
+      process.env.GMAIL_REQUEST_TIMEOUT_MS
+    )
+  );
 }
 
 async function readJsonIfExists(filePath) {
@@ -116,12 +132,45 @@ export async function loadCredentials(config = {}) {
   };
 }
 
-async function fetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+async function fetchWithTimeout(url, options = {}, {
+  operation = "Gmail API request",
+  timeoutMs = DEFAULT_GMAIL_REQUEST_TIMEOUT_MS
+} = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: options.signal ?? controller.signal
+    });
+  } catch (error) {
+    const host = (() => {
+      try {
+        return new URL(url).host;
+      } catch {
+        return "Gmail API";
+      }
+    })();
+    const reason = error?.name === "AbortError"
+      ? `timed out after ${timeoutMs}ms`
+      : error instanceof Error
+        ? error.message
+        : String(error);
+
+    throw new Error(`${operation} failed against ${host}: ${reason}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchJson(url, options = {}, meta = {}) {
+  const response = await fetchWithTimeout(url, options, meta);
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Gmail API request failed (${response.status}): ${errorText}`);
+    const operation = meta.operation || "Gmail API request";
+    throw new Error(`${operation} failed (${response.status}): ${errorText}`);
   }
 
   return response.json();
@@ -165,12 +214,15 @@ export async function getAccessToken(config = {}) {
     body.set("client_secret", credentials.clientSecret);
   }
 
-  const response = await fetch("https://oauth2.googleapis.com/token", {
+  const response = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded"
     },
     body
+  }, {
+    operation: "Gmail OAuth token refresh",
+    timeoutMs: gmailRequestTimeoutMs(config)
   });
 
   if (!response.ok) {
@@ -215,7 +267,7 @@ function serviceAccountAssertion({
 
 async function getServiceAccountAccessToken(credentials = {}) {
   const assertion = serviceAccountAssertion(credentials);
-  const response = await fetch("https://oauth2.googleapis.com/token", {
+  const response = await fetchWithTimeout("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded"
@@ -224,6 +276,9 @@ async function getServiceAccountAccessToken(credentials = {}) {
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion
     })
+  }, {
+    operation: "Gmail service-account token request",
+    timeoutMs: gmailRequestTimeoutMs(credentials)
   });
 
   if (!response.ok) {
@@ -258,6 +313,9 @@ async function gmailRequest(endpoint, { method = "GET", query = {}, body, config
       "content-type": "application/json; charset=utf-8"
     },
     body: body ? JSON.stringify(body) : undefined
+  }, {
+    operation: `Gmail ${method} ${endpoint}`,
+    timeoutMs: gmailRequestTimeoutMs(config)
   });
 }
 
@@ -317,7 +375,8 @@ export async function fetchRecentThreads({
   since = "",
   until = "",
   query = "",
-  config
+  config,
+  onProgress = async () => {}
 } = {}) {
   const range = { since, until };
   const q = [gmailDateQuery({ hours, since, until }), query].filter(Boolean).join(" ");
@@ -332,21 +391,29 @@ export async function fetchRecentThreads({
   const threadIds = [...new Set((messageList.messages ?? []).map((message) => message.threadId).filter(Boolean))];
   const threads = [];
 
-  for (const threadId of threadIds) {
+  await onProgress({
+    threadCount: threadIds.length,
+    fetchedThreads: 0,
+    query: q
+  });
+
+  for (const [index, threadId] of threadIds.entries()) {
     const thread = await gmailRequest(`threads/${threadId}`, {
       query: {
         format: "full"
       },
       config
     });
-    if (!since && !until) {
+    if (!since && !until || (thread.messages ?? []).some((message) => messageInRange(message, range))) {
       threads.push(thread);
-      continue;
     }
 
-    if ((thread.messages ?? []).some((message) => messageInRange(message, range))) {
-      threads.push(thread);
-    }
+    await onProgress({
+      threadCount: threadIds.length,
+      fetchedThreads: index + 1,
+      acceptedThreads: threads.length,
+      currentThreadId: threadId
+    });
   }
 
   return threads;

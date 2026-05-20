@@ -32,9 +32,28 @@ test("ShelfCycle product requirements treat fixed supplier as conditional requir
   assert.ok(requirements.missingRequiredFields.some((item) => item.key === "supplier"));
 });
 
+test("ShelfCycle product requirements track shipping and regulatory review fields separately", () => {
+  const requirements = shelfCycleProductRequirementsForFields({
+    code: "XP1127-D",
+    productFamily: "ONGRONAT XP 1127",
+    packagingType: "Fixed",
+    packaging: "Drum (kg)",
+    quantityPerPackage: "225",
+    supplierType: "Variable"
+  });
+
+  assert.equal(requirements.readyForProductCodeCreate, true);
+  assert.equal(requirements.missingRequiredFields.length, 0);
+  assert.ok(requirements.missingReviewFields.some((item) => item.key === "unNumber"));
+  assert.ok(requirements.missingReviewFields.some((item) => item.key === "freightClass"));
+  assert.equal(requirements.missingReviewFields.find((item) => item.key === "unNumber").blocking, false);
+});
+
 test("product requirements prompt explains existing-family reuse rule", () => {
   const prompt = productRequirementsPromptBlock();
 
   assert.match(prompt, /Existing-family reuse rule/);
   assert.match(prompt, /Only vary package-specific Product Code fields/);
+  assert.match(prompt, /Shipping\/regulatory\/logistics review fields/);
+  assert.match(prompt, /best-supported AI determination/);
 });

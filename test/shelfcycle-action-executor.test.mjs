@@ -7,6 +7,7 @@ import {
   buildContactUpdateSubmission,
   buildCustomerSubmission,
   buildCustomerNoteSubmission,
+  buildLocationSubmission,
   buildPricingSubmission,
   buildProductDocumentSubmission,
   buildProductSubmission,
@@ -195,6 +196,62 @@ test("buildContactSubmission maps supplier mobile phone into ShelfCycle phone fi
   assert.equal(submission.fields.mobilePhone, "401-692-7336");
 });
 
+test("buildLocationSubmission creates supplier location payload", () => {
+  const submission = buildLocationSubmission(executableReviewAction(), {
+    id: "action-location",
+    reviewActionId: "review-123",
+    actionType: SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE,
+    executable: true,
+    selectedTarget: {
+      kind: "supplier",
+      id: "supplier-123",
+      label: "Kessler Chemical"
+    },
+    fieldValues: {
+      companyType: "supplier",
+      name: "Kessler Chemical",
+      streetAddress: "1 Main St",
+      city: "Charlotte",
+      stateRegion: "NC",
+      zip: "28202",
+      country: "United States"
+    }
+  });
+
+  assert.equal(submission.recordType, "location");
+  assert.equal(submission.actionType, SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE);
+  assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/suppliers/supplier-123/locations");
+  assert.equal(submission.supplierId, "supplier-123");
+  assert.equal(submission.customerId, "");
+  assert.equal(submission.fields.name, "Kessler Chemical");
+  assert.equal(submission.fields.companyType, "supplier");
+});
+
+test("buildLocationSubmission creates customer shipping address payload", () => {
+  const submission = buildLocationSubmission(executableReviewAction(), {
+    id: "action-location",
+    reviewActionId: "review-123",
+    actionType: SHELFCYCLE_ACTION_TYPES.LOCATION_CREATE,
+    executable: true,
+    selectedTarget: {
+      kind: "customer",
+      id: "customer-123",
+      label: "Surface Koatings"
+    },
+    fieldValues: {
+      companyType: "customer",
+      name: "Surface Koatings",
+      streetAddress: "2 Industrial Way",
+      defaultShippingInstructions: "Call before delivery."
+    }
+  });
+
+  assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/customers/customer-123/addresses");
+  assert.equal(submission.customerId, "customer-123");
+  assert.equal(submission.supplierId, "");
+  assert.equal(submission.fields.defaultShippingInstructions, "Call before delivery.");
+});
+
 test("buildCustomerSubmission creates customer payload", () => {
   const proposedAction = collectProposedActions({
     ...executableReviewAction(),
@@ -351,13 +408,62 @@ test("buildProductSubmission creates product-code payload", () => {
     fieldValues: {
       code: "NEW-D",
       productFamily: "New Product",
+      packagingType: "fixed package",
       packaging: "Drum",
-      quantityPerPackage: "500"
+      quantityPerPackage: "500",
+      unitOfMeasure: "kilograms",
+      supplierType: "variable",
+      sdsPath: "/tmp/new-product-sds.pdf"
     }
   });
 
   assert.equal(submission.url, "https://app.shelfcycle.com/org-clearedge/products");
   assert.equal(submission.fields.code, "NEW-D");
+  assert.equal(submission.fields.packagingType, "Fixed");
+  assert.equal(submission.fields.unitOfMeasure, "kg");
+  assert.equal(submission.fields.supplierType, "Variable");
+  assert.equal(submission.fields.sdsPath, "/tmp/new-product-sds.pdf");
+});
+
+test("buildProductSubmission rejects missing required product-code fields before automation", () => {
+  assert.throws(
+    () => buildProductSubmission(executableReviewAction(), {
+      id: "action-product-missing",
+      reviewActionId: "review-123",
+      actionType: SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE,
+      executable: true,
+      fieldValues: {
+        code: "NEW-D",
+        productFamily: "New Product"
+      }
+    }),
+    /missing required ShelfCycle fields/i
+  );
+});
+
+test("buildProductSubmission normalizes known supplier aliases before automation", () => {
+  const submission = buildProductSubmission(executableReviewAction(), {
+    id: "action-product-wb",
+    reviewActionId: "review-123",
+    actionType: SHELFCYCLE_ACTION_TYPES.PRODUCT_CREATE_OR_UPDATE,
+    executable: true,
+    fieldValues: {
+      code: "WB-NPGDGE",
+      productFamily: "Epoxy Reactive Diluents",
+      packagingType: "variable packaging",
+      packaging: "drums",
+      quantityPerPackage: "200",
+      unitOfMeasure: "kilograms",
+      supplierType: "fixed",
+      supplier: "WINBOND MATERIALS CO., LTD."
+    }
+  });
+
+  assert.equal(submission.fields.packagingType, "Variable");
+  assert.equal(submission.fields.packaging, "Drum (kg)");
+  assert.equal(submission.fields.unitOfMeasure, "kg");
+  assert.equal(submission.fields.supplierType, "Fixed");
+  assert.equal(submission.fields.supplier, "Winbond Materials Co., Ltd.");
 });
 
 test("buildProductSubmission creates existing-product update payload", () => {
