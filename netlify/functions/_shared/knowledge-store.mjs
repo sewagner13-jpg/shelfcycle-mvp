@@ -5,6 +5,7 @@ const KNOWLEDGE_KEY = "knowledge-bundle.json";
 const LAST_BRIEF_KEY = "latest-daily-brief.txt";
 const SETTINGS_KEY = "brief-settings.json";
 const REVIEW_ACTION_PREFIX = "review-actions";
+const FULL_EMAIL_REVIEW_PREFIX = "review-action-full-email";
 
 function getScopedStore() {
   // Use the site-wide store for operational data that must survive manual
@@ -50,4 +51,14 @@ export async function saveReviewAction(action) {
 export async function loadReviewAction(actionId) {
   const store = getScopedStore();
   return store.get(`${REVIEW_ACTION_PREFIX}/${actionId}.json`, { type: "json" });
+}
+
+export async function saveFullEmailReviewState(actionId, state) {
+  const store = getScopedStore();
+  await store.setJSON(`${FULL_EMAIL_REVIEW_PREFIX}/${actionId}.json`, state);
+}
+
+export async function loadFullEmailReviewState(actionId) {
+  const store = getScopedStore();
+  return store.get(`${FULL_EMAIL_REVIEW_PREFIX}/${actionId}.json`, { type: "json" });
 }
