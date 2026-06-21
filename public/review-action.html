@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ClearEdge Review Packet</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/full-email-review.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -75,6 +76,23 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <section id="full-email-review-panel" class="panel full-email-review-panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Source validation</p>
+              <h2>Gmail full email review</h2>
+            </div>
+            <div class="actions">
+              <span id="email-source-checked" class="status-pill status-ready" hidden>Source checked</span>
+              <button id="read-full-email" class="ghost" type="button">Read full email</button>
+            </div>
+          </div>
+          <p id="full-email-review-status" class="hint full-email-review-status">
+            The AI summary is shown above. Open the full source before relying on it for a decision.
+          </p>
+          <div id="full-email-review-content" class="full-email-review-content" hidden></div>
         </section>
 
         <section class="panel operator-packet-panel">
@@ -203,5 +221,6 @@
 
     <script type="module" src="/ops-status.js"></script>
     <script type="module" src="/review-action.js"></script>
+    <script type="module" src="/full-email-review.js"></script>
   </body>
 </html>
