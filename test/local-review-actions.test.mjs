@@ -151,3 +151,47 @@ test("attachLocalReviewActions falls back to local URLs when hosted sync is unav
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("createReviewActionRecord preserves intelligenceContext and learningPrompt from analysis", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "local-review-actions-intel-"));
+
+  try {
+    const thread = {
+      threadId: "thread-intel",
+      subject: "Benzyl alcohol pricing",
+      relationship: { relationship: "supplier", subtype: "core_supplier" },
+      silo: { name: "commercial" },
+      state: { state: "needs_attention" },
+      externalParticipants: [{ name: "SupplierRep", email: "rep@supplier.example", domain: "supplier.example" }],
+      analysis: {
+        draftNote: { title: "Benzyl alcohol pricing", summary: "Quote requested." },
+        roleWorklists: { owner: [], sales: [], procurement: ["Request pricing."] },
+        suggestedCreates: [],
+        warnings: [],
+        matches: {},
+        intelligenceContext: {
+          status: "no_historical_context",
+          primaryChemicalEntity: { name: "Benzyl Alcohol", code: "", supplier: "SupplierCo", casNumber: "100-51-6", source: "product_match" },
+          matchedEntry: null,
+          contradictions: [],
+          brief: "### ClearEdge Intelligence Brief\nPrimary Chemical Entity: Benzyl Alcohol\nNo Historical Context Found."
+        },
+        learningPrompt: "Should \"Benzyl Alcohol\" be added to the ClearEdge Intelligence library?"
+      }
+    };
+
+    const enhanced = await attachLocalReviewActions([thread], {
+      storageDir: tempDir,
+      baseUrl: "http://localhost:4318"
+    });
+
+    const url = new URL(enhanced[0].reviewUrl);
+    const action = await loadLocalReviewAction(tempDir, url.searchParams.get("id"));
+
+    assert.equal(action.intelligenceContext.status, "no_historical_context");
+    assert.equal(action.intelligenceContext.primaryChemicalEntity.name, "Benzyl Alcohol");
+    assert.equal(action.learningPrompt, "Should \"Benzyl Alcohol\" be added to the ClearEdge Intelligence library?");
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});

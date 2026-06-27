@@ -155,6 +155,7 @@ export function createReviewActionRecord(item = {}) {
     writePlan: item.analysis?.writePlan || item.analysis?.write_plan || item.writePlan || null,
     matches: item.analysis?.matches ?? {},
     intelligenceContext: item.analysis?.intelligenceContext ?? item.analysis?.notebookContext ?? null,
+    learningPrompt: item.analysis?.learningPrompt ?? null,
     suggestedCreates: item.analysis?.suggestedCreates ?? [],
     followUpDraft: item.analysis?.followUpDraft ?? null,
     warnings: item.analysis?.warnings ?? [],

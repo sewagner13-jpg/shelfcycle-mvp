@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const projectRoot = "/Users/seanwagner/Documents/Playground/shelfcycle-mvp";
+const projectRoot = path.resolve(new URL(".", import.meta.url).pathname, "..");
 
 test("export-knowledge auto-merges the project ClearEdge intelligence file", async (t) => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "clearedge-export-"));
@@ -33,7 +33,7 @@ test("export-knowledge auto-merges the project ClearEdge intelligence file", asy
   });
 
   await execFileAsync(
-    "node",
+    process.execPath,
     [
       path.join(projectRoot, "apps/local-sync/export-knowledge.mjs"),
       "--input",

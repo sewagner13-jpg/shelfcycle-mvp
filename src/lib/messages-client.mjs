@@ -1,11 +1,32 @@
 import os from "node:os";
 import path from "node:path";
 import { promises as fs } from "node:fs";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const APPLE_EPOCH_UNIX_SECONDS = 978307200;
+
+function findSqlite3() {
+  const candidates = ["/usr/bin/sqlite3", "/usr/local/bin/sqlite3", "/opt/homebrew/bin/sqlite3"];
+  for (const p of candidates) {
+    try {
+      execFileSync(p, ["--version"], { stdio: "ignore" });
+      return p;
+    } catch {
+      // not found here
+    }
+  }
+  try {
+    const result = execFileSync("which", ["sqlite3"], { encoding: "utf8" }).trim();
+    if (result) return result;
+  } catch {
+    // not in PATH
+  }
+  return null;
+}
+
+export const SQLITE3_PATH = findSqlite3();
 const NANOSECOND_THRESHOLD = 1_000_000_000_000;
 
 function base64UrlEncode(value = "") {
@@ -287,7 +308,10 @@ async function runSqliteJsonQuery(dbPath, sql) {
     return [];
   }
 
-  const { stdout } = await execFileAsync("/usr/bin/sqlite3", ["-json", dbPath, sql], {
+  if (!SQLITE3_PATH) {
+    throw new Error("sqlite3 binary not found; Messages integration requires macOS with sqlite3 installed");
+  }
+  const { stdout } = await execFileAsync(SQLITE3_PATH, ["-json", dbPath, sql], {
     maxBuffer: 16 * 1024 * 1024
   });
 

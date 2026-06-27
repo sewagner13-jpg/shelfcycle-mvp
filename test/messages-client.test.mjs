@@ -11,7 +11,8 @@ import {
   buildMessagesSql,
   buildParticipantsSql,
   rowsToMessagesThreads,
-  fetchRecentMessageThreads
+  fetchRecentMessageThreads,
+  SQLITE3_PATH
 } from "../src/lib/messages-client.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -84,7 +85,7 @@ test("rowsToMessagesThreads normalizes Messages rows into thread objects", () =>
   assert.equal(threads[0].messages[1].payload.headers[0].value, "Sean Wagner <sean@clear-edge.net>");
 });
 
-test("fetchRecentMessageThreads reads a simplified Messages-style sqlite database", async () => {
+test("fetchRecentMessageThreads reads a simplified Messages-style sqlite database", { skip: !SQLITE3_PATH ? "sqlite3 not available in this environment" : false }, async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "messages-db-test-"));
   const dbPath = path.join(tempDir, "chat.db");
   const appleEpochSeconds = 978307200;
@@ -134,7 +135,7 @@ INSERT INTO message_attachment_join (message_id) VALUES (100);
 `;
 
   try {
-    await execFile("/usr/bin/sqlite3", [dbPath, sql]);
+    await execFile(SQLITE3_PATH, [dbPath, sql]);
     const threads = await fetchRecentMessageThreads({
       dbPath,
       hours: 72,

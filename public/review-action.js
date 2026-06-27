@@ -3,6 +3,10 @@ const ledeEl = document.querySelector("#review-lede");
 const relationshipChipEl = document.querySelector("#relationship-chip");
 const stateChipEl = document.querySelector("#state-chip");
 const createdAtEl = document.querySelector("#created-at");
+const intelligenceContextPanelEl = document.querySelector("#intelligence-context-panel");
+const intelligenceContextStatusEl = document.querySelector("#intelligence-context-status");
+const intelligenceContextCardsEl = document.querySelector("#intelligence-context-cards");
+const intelligenceContextBriefEl = document.querySelector("#intelligence-context-brief");
 const availableActionsEl = document.querySelector("#available-actions");
 const participantsEl = document.querySelector("#participants");
 const summaryEl = document.querySelector("#summary");
@@ -1057,6 +1061,111 @@ function renderAvailableActions(action = {}) {
     .join("");
 }
 
+const INTELLIGENCE_STATUS_LABELS = {
+  matched: "Matched against ClearEdge Intelligence",
+  no_historical_context: "No historical context yet",
+  missing_primary_entity: "Primary chemical entity unresolved"
+};
+
+function intelligenceEntityCardHtml(entity) {
+  if (!entity?.name) {
+    return "";
+  }
+
+  const meta = [
+    entity.code ? `Code ${entity.code}` : "",
+    entity.supplier ? `Supplier ${entity.supplier}` : "",
+    entity.casNumber ? `CAS ${entity.casNumber}` : "",
+    entity.source ? `Source: ${entity.source.replace(/_/g, " ")}` : ""
+  ]
+    .filter(Boolean)
+    .map((line) => `<span>${escapeHtml(line)}</span>`)
+    .join("");
+
+  return `<div class="pill-card notebook-card"><strong>${escapeHtml(entity.name)}</strong>${meta}</div>`;
+}
+
+function intelligenceMatchCardHtml(matchedEntry) {
+  if (!matchedEntry) {
+    return "";
+  }
+
+  const lines = [];
+
+  if (matchedEntry.lastKnownGoodPrice) {
+    lines.push(`Price: ${matchedEntry.lastKnownGoodPrice}`);
+  }
+
+  const specBits = [
+    matchedEntry.masterSpecs?.casNumber ? `CAS ${matchedEntry.masterSpecs.casNumber}` : "",
+    matchedEntry.masterSpecs?.purity ? `Purity ${matchedEntry.masterSpecs.purity}` : "",
+    matchedEntry.masterSpecs?.flashPoint ? `Flash ${matchedEntry.masterSpecs.flashPoint}` : ""
+  ].filter(Boolean);
+
+  if (specBits.length) {
+    lines.push(`Specs: ${specBits.join(" | ")}`);
+  }
+
+  if (matchedEntry.supplierNames?.length) {
+    lines.push(`Suppliers: ${matchedEntry.supplierNames.slice(0, 2).join(", ")}`);
+  }
+
+  const meta = lines.map((line) => `<span>${escapeHtml(line)}</span>`).join("");
+
+  return `<div class="pill-card notebook-card"><strong>${escapeHtml(matchedEntry.entity ?? "ClearEdge intelligence entry")}</strong>${meta}</div>`;
+}
+
+function intelligenceContradictionsCardHtml(contradictions = []) {
+  if (!contradictions.length) {
+    return "";
+  }
+
+  const items = contradictions.map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+
+  return `<div class="pill-card notebook-card notebook-warn"><strong>Contradictions detected</strong><ul class="notebook-list">${items}</ul></div>`;
+}
+
+function intelligenceLearningCardHtml(learningPrompt) {
+  if (!learningPrompt) {
+    return "";
+  }
+
+  return `<div class="pill-card notebook-card notebook-learn"><strong>Learning prompt</strong><span>${escapeHtml(learningPrompt)}</span></div>`;
+}
+
+function renderIntelligenceContext(action = {}) {
+  if (!intelligenceContextPanelEl || !intelligenceContextStatusEl || !intelligenceContextCardsEl || !intelligenceContextBriefEl) {
+    return;
+  }
+
+  const context = action.intelligenceContext ?? null;
+
+  if (!context) {
+    return;
+  }
+
+  intelligenceContextPanelEl.hidden = false;
+
+  const status = context.status ?? "missing_primary_entity";
+  intelligenceContextStatusEl.textContent = INTELLIGENCE_STATUS_LABELS[status] ?? status;
+  intelligenceContextStatusEl.className = status === "matched" ? "chip active" : "chip muted";
+
+  const learningPrompt = action.learningPrompt
+    ?? (status === "no_historical_context" && context.primaryChemicalEntity?.name
+      ? `Should "${context.primaryChemicalEntity.name}" be added to the ClearEdge Intelligence library?`
+      : null);
+
+  intelligenceContextCardsEl.innerHTML = [
+    intelligenceEntityCardHtml(context.primaryChemicalEntity),
+    intelligenceMatchCardHtml(context.matchedEntry),
+    intelligenceContradictionsCardHtml(context.contradictions ?? []),
+    intelligenceLearningCardHtml(learningPrompt)
+  ].filter(Boolean).join("");
+
+  intelligenceContextBriefEl.textContent = context.brief?.trim() || "";
+  intelligenceContextBriefEl.hidden = !context.brief?.trim();
+}
+
 function renderAction(action = {}) {
   currentAction = action;
   titleEl.textContent = action.subject || "ClearEdge review packet";
@@ -1076,6 +1185,7 @@ function renderAction(action = {}) {
   setOutput(writePlanEl, formatWritePlanDisplay(action.writePlan));
   setOutput(suggestedCreatesEl, formatSuggestedCreatesDisplay(action.suggestedCreates ?? []));
   renderDocuments(action.workspaceArtifacts ?? {});
+  renderIntelligenceContext(action);
   updateShelfCycleLinks();
   openChatGptEl.href = action.chatGptUrl || "https://chatgpt.com/";
 }

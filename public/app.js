@@ -1828,6 +1828,7 @@ function intelligenceLearningCard(learningPrompt) {
     <div class="pill-card notebook-card notebook-learn">
       <strong>Learning prompt</strong>
       <span>${escapeHtml(learningPrompt)}</span>
+      <button type="button" class="button-link mini ghost" data-copy-intelligence-stub style="margin-top:6px">Copy entry stub</button>
     </div>
   `;
 }
@@ -1855,6 +1856,35 @@ function renderIntelligenceContext(result) {
 
   intelligenceSummaryEl.innerHTML = cards;
   intelligenceBriefEl.textContent = context?.brief?.trim() ? context.brief : "No intelligence brief yet.";
+
+  const copyStubBtn = intelligenceSummaryEl.querySelector("[data-copy-intelligence-stub]");
+
+  if (copyStubBtn && context?.primaryChemicalEntity) {
+    copyStubBtn.addEventListener("click", () => {
+      const entity = context.primaryChemicalEntity;
+      const stub = {
+        entity: entity.name || "",
+        aliases: [entity.casNumber, entity.code].filter(Boolean),
+        supplierNames: entity.supplier ? [entity.supplier] : [],
+        customerNames: [],
+        lastKnownGoodPrice: "",
+        masterSpecs: {
+          casNumber: entity.casNumber || "",
+          purity: "",
+          flashPoint: ""
+        },
+        historicalNotes: [],
+        logisticsNuances: [],
+        commercialBenchmarks: [],
+        complianceNotes: []
+      };
+      navigator.clipboard.writeText(JSON.stringify(stub, null, 2)).then(() => {
+        const prev = copyStubBtn.textContent;
+        copyStubBtn.textContent = "Copied!";
+        setTimeout(() => { copyStubBtn.textContent = prev; }, 2000);
+      }).catch(() => {});
+    });
+  }
 }
 
 function formatFollowUpDraft(followUpDraft) {
