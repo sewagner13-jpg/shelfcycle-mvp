@@ -441,6 +441,9 @@ function gatherIntelligenceCoverage(items = []) {
   const contradictions = [];
   const seenPrompts = new Set();
   const seenContradictions = new Set();
+  let totalAnalyzed = 0;
+  let totalMatched = 0;
+  let totalNoHistory = 0;
 
   for (const item of items) {
     const analysis = item.analysis ?? {};
@@ -448,12 +451,24 @@ function gatherIntelligenceCoverage(items = []) {
     const prompt = analysis.learningPrompt;
     const status = context?.status;
 
-    if (status === "no_historical_context" && prompt && !seenPrompts.has(prompt)) {
-      seenPrompts.add(prompt);
-      learningPrompts.push(prompt);
+    if (!status) {
+      continue;
+    }
+
+    totalAnalyzed++;
+
+    if (status === "no_historical_context") {
+      totalNoHistory++;
+
+      if (prompt && !seenPrompts.has(prompt)) {
+        seenPrompts.add(prompt);
+        learningPrompts.push(prompt);
+      }
     }
 
     if (status === "matched") {
+      totalMatched++;
+
       for (const contradiction of context?.contradictions ?? []) {
         if (contradiction && !seenContradictions.has(contradiction)) {
           seenContradictions.add(contradiction);
@@ -463,7 +478,7 @@ function gatherIntelligenceCoverage(items = []) {
     }
   }
 
-  return { learningPrompts, contradictions };
+  return { learningPrompts, contradictions, totalAnalyzed, totalMatched, totalNoHistory };
 }
 
 function gatherShelfCycleActions(items = []) {
@@ -618,6 +633,11 @@ function buildLegacyDailyBrief({
     timeZone
   }).format(new Date(generatedAt));
 
+  const intelligenceHitLine =
+    intelligenceCoverage.totalAnalyzed > 0
+      ? `- Intelligence coverage: ${intelligenceCoverage.totalMatched} matched, ${intelligenceCoverage.totalNoHistory} new (of ${intelligenceCoverage.totalAnalyzed} with product context)`
+      : "";
+
   const sections = [
     title,
     `Organization: ${organization}`,
@@ -629,6 +649,7 @@ function buildLegacyDailyBrief({
     `- Waiting on others: ${waitingOnOthers.length}`,
     `- Internal/FYI: ${internal.length}`,
     `- Likely solicitations: ${solicitations.length}`,
+    ...(intelligenceHitLine ? [intelligenceHitLine] : []),
     ...(hasMessageMemoryContent(messageMemory)
       ? [
           `- Message business threads: ${messageMemoryCounts(messageMemory).businessThreads}`,
@@ -1392,6 +1413,11 @@ function formatSnapshot({
 } = {}) {
   const messageCounts = messageMemoryCounts(messageMemory ?? {});
   const reviewCount = sorted.filter((item) => item.reviewUrl).length;
+  const intelligenceCoverage = gatherIntelligenceCoverage(sorted);
+  const intelligenceRow =
+    intelligenceCoverage.totalAnalyzed > 0
+      ? `<tr><td>Intelligence coverage</td><td>${intelligenceCoverage.totalMatched} matched, ${intelligenceCoverage.totalNoHistory} new (of ${intelligenceCoverage.totalAnalyzed} with product context)</td></tr>`
+      : "";
 
   return [
     `<table class="brief-snapshot">`,
@@ -1403,6 +1429,7 @@ function formatSnapshot({
     `<tr><td>Unknown Text Contacts</td><td>${messageCounts.unknownContacts}</td></tr>`,
     `<tr><td>Hidden Noise</td><td>${solicitations.length + (messageMemory?.low_priority_summary?.length ?? 0)}</td></tr>`,
     `<tr><td>Internal / FYI</td><td>${internal.length}</td></tr>`,
+    ...(intelligenceRow ? [intelligenceRow] : []),
     `</table>`
   ].join("\n");
 }

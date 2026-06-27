@@ -774,6 +774,69 @@ test("buildDailyBrief surfaces unique ClearEdge intelligence learning prompts an
   assert.equal(promptOccurrences.length, 1, "duplicate learning prompts should be de-duplicated");
 });
 
+test("buildDailyBrief includes an intelligence hit-rate line in the Coverage Summary", () => {
+  const analyzedThreads = [
+    {
+      relationship: { relationship: "customer", subtype: "core_customer" },
+      silo: { name: "commercial" },
+      state: { state: "needs_attention" },
+      priorityScore: 90,
+      lastTimestamp: Date.UTC(2026, 4, 4, 10, 0, 0),
+      subject: "Re: Mystery Resin XYZ",
+      externalParticipants: [{ name: "Buyer", email: "buyer@example.com", domain: "example.com" }],
+      analysis: {
+        rawExtracts: { keyPoints: [] },
+        roleWorklists: { owner: [], sales: [], procurement: [] },
+        suggestedCreates: [],
+        warnings: [],
+        draftNote: { title: "2026-05-04 - Re: Mystery Resin XYZ" },
+        intelligenceContext: { status: "no_historical_context", primaryChemicalEntity: { name: "Mystery Resin XYZ" }, matchedEntry: null, contradictions: [] }
+      }
+    },
+    {
+      relationship: { relationship: "supplier", subtype: "core_supplier" },
+      silo: { name: "commercial" },
+      state: { state: "needs_attention" },
+      priorityScore: 80,
+      lastTimestamp: Date.UTC(2026, 4, 4, 9, 0, 0),
+      subject: "RUCOLAC B-321 quote",
+      externalParticipants: [{ name: "Supplier", email: "rep@supplier.example", domain: "supplier.example" }],
+      analysis: {
+        rawExtracts: { keyPoints: [] },
+        roleWorklists: { owner: [], sales: [], procurement: [] },
+        suggestedCreates: [],
+        warnings: [],
+        draftNote: { title: "2026-05-04 - RUCOLAC B-321 quote" },
+        intelligenceContext: { status: "matched", primaryChemicalEntity: { name: "RUCOLAC B-321" }, matchedEntry: { entity: "RUCOLAC B-321", lastKnownGoodPrice: "$12.86/lb" }, contradictions: [] }
+      }
+    },
+    {
+      relationship: { relationship: "customer", subtype: "core_customer" },
+      silo: { name: "commercial" },
+      state: { state: "needs_attention" },
+      priorityScore: 70,
+      lastTimestamp: Date.UTC(2026, 4, 4, 8, 0, 0),
+      subject: "General inquiry",
+      externalParticipants: [{ name: "Contact", email: "contact@example.com", domain: "example.com" }],
+      analysis: {
+        rawExtracts: { keyPoints: [] },
+        roleWorklists: { owner: [], sales: [], procurement: [] },
+        suggestedCreates: [],
+        warnings: [],
+        draftNote: { title: "2026-05-04 - General inquiry" }
+      }
+    }
+  ];
+
+  const brief = buildDailyBrief({ analyzedThreads, organization: "ClearEdge Solutions" });
+
+  assert.ok(
+    brief.includes("1 matched, 1 new (of 2 with product context)"),
+    `expected intelligence hit-rate row in brief snapshot table; got:\n${brief.slice(0, 3000)}`
+  );
+  assert.ok(brief.includes("Intelligence coverage"), "expected 'Intelligence coverage' label in snapshot");
+});
+
 test("buildDailyBrief omits the ClearEdge Intelligence coverage section when there is nothing to surface", () => {
   const analyzedThreads = [
     {
