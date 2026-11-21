@@ -72,7 +72,7 @@ import {
   projectRoot,
   publicRoot
 } from "./paths.mjs";
-import { CORS_HEADERS, createStaticFileServer, html, json, readBody } from "./http-utils.mjs";
+import { LOCAL_BIND_HOST, checkLocalRequest, createStaticFileServer, html, json, readBody } from "./http-utils.mjs";
 
 const activeShelfCycleAbortControllers = new Map();
 const serveStatic = createStaticFileServer({ publicRoot, dataRoot });
@@ -1588,9 +1588,25 @@ function createServer() {
   return http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://localhost");
+      const guard = checkLocalRequest(request, { port: request.socket.localPort });
+
+      for (const [name, value] of Object.entries(guard.corsHeaders)) {
+        response.setHeader(name, value);
+      }
+
+      if (!guard.ok) {
+        json(response, guard.statusCode, {
+          ok: false,
+          error: {
+            code: guard.code,
+            message: guard.message
+          }
+        });
+        return;
+      }
 
       if (request.method === "OPTIONS") {
-        response.writeHead(204, CORS_HEADERS);
+        response.writeHead(204);
         response.end();
         return;
       }
@@ -2721,8 +2737,7 @@ function createServer() {
       }
 
       response.writeHead(404, {
-        "content-type": "text/plain; charset=utf-8",
-        ...CORS_HEADERS
+        "content-type": "text/plain; charset=utf-8"
       });
       response.end("Not found");
     } catch (error) {
@@ -2736,8 +2751,8 @@ function createServer() {
 export function startServer({ port = 4318 } = {}) {
   const server = createServer();
 
-  server.listen(port, () => {
-    console.log(`ShelfCycle MVP listening on http://localhost:${port}`);
+  server.listen(port, LOCAL_BIND_HOST, () => {
+    console.log(`ShelfCycle MVP listening on http://localhost:${server.address().port} (bound to ${LOCAL_BIND_HOST} only)`);
   });
 
   return server;
